@@ -91,6 +91,31 @@ python3.14 build_app.py ~/Games/totk.xci -k ~/keys/prod.keys --platform ios -o ~
 python3.14 update_runtime.py "~/Games/Tears of the Kingdom.app"
 ```
 
+**只有安装好的旧 App，没有原打包工作目录：** 可以用 `--import-app` 从 App 恢复工作数据。
+适用于仓库登记过的代码和游戏数据；旧版 arm64 App 内嵌的模块表会转换为新版独立数据表，旧程序不会被执行。
+本体和已安装 DLC 的完整 SHA-256 会与仓库记录核对，共享字体单独验证。
+如果着色器翻译链也变了，同时加 `--seed`，从恢复的 RomFS 重建着色器。
+整个过程不需要原始 XCI／NSP、`prod.keys` 或原电脑上的构建目录。
+
+例如，为已安装的《旷野之息》1.6.0 创建独立开发版，第一次在仓库根目录执行：
+
+```sh
+mkdir -p BotW_build/dev
+cp -cR "/Applications/Breath of the Wild.app" BotW_build/dev/
+python3.14 update_runtime.py "BotW_build/dev/Breath of the Wild.app" \
+  --work BotW_build/runtime-dev --import-app --seed
+```
+
+初次复制只需做一次。之后修改源码，使用同一个工作目录增量编译即可：
+
+```sh
+python3.14 update_runtime.py "BotW_build/dev/Breath of the Wild.app" --work BotW_build/runtime-dev
+```
+
+开发 App 的游戏数据与原安装各自保存，但默认使用同一份玩家存档和缓存；测试时可用启动器支持的
+`TOTK_PROFILE_DIR` 指定存档副本。开发版所在的 `BotW_build` 被 Git 忽略。
+本机 Homebrew 库及 SDK 的最低系统版本也影响构建结果，不能仅凭 App 的 `LSMinimumSystemVersion` 判断跨系统兼容性。
+
 在 M4 Mac 上更新一个 1.4.3 App 用了 46 秒。请先退出游戏，否则脚本会等游戏关闭后再替换。拆分之前打包的 App 还没有游戏数据文件夹：脚本会用当初打包这个 App 的工作目录（App 旁边的 `TOTK_build`，或 `--work <目录>`）生成一次。不管来自哪里，替换之前都会先核对这个文件夹与 App 自己的代码模块、RomFS 索引和字体是否一致。新的运行时如果改变了着色器翻译链版本，App 里的启动着色器就不再适用，脚本会停下；加上 `--seed` 即可用工作目录里的 RomFS 和代码模块重新生成它们（几分钟，同样不需要游戏文件和密钥；会先核对这些文件确实属于这个 App）。游戏的代码模块也原样保留，所以它们必须是本仓库的代码改写器（`patch_nso.py`）的产物：要么和本仓库为该版本登记的改写结果一致，要么（合并了模组代码补丁的构建）是同一个 `patch_nso.py` 生成的。否则脚本同样会停下：运行时可能依赖改写器写进代码里的东西，模块必须用 `build_app.py` 重新改写。换游戏版本或合并模组代码补丁，也需要 `build_app.py`。替换之前，脚本会先用 App 自己的游戏文件跑一遍新的运行时；更新后的 App 如果没通过启动检查，会把原来的 App 放回去。运行时不含任何游戏内容，所以 `make -C games/totk binary-v143`（或 `binary`、`binary-v112` 等）无需任何游戏文件就能构建它。
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MacNativeGames: put a new build of the runtime into an app that build_app.py made, without its game files.
 
-    python3 update_runtime.py "<the app>" [--work <folder>] [--seed]
+    python3 update_runtime.py "<the app>" [--work <folder>] [--seed] [--import-app]
 
 An app has two parts. The runtime is made from this repository alone: the game binary (games/totk/runtime and the graphics
 layer), the launcher, the shader tools (SPIRV-Cross, the shader translator) and the warm-up lists exported from the shared
@@ -24,6 +24,11 @@ An app made before the game data folder existed (its game binary had the tables 
 from the files the build that made the app extracted into its work folder (--work; default the TOTK_build or BotW_build
 folder next to the app). Whatever the folder comes from, it is checked against the app's own modules, RomFS index and
 fonts before anything is replaced.
+
+Without the original work folder, --import-app restores it from repository-pinned game files already in the app.
+For legacy arm64 apps it converts the old runtime's embedded module tables without executing that runtime. Images are
+hashed against the repository pins. Add --seed when the app uses an older shader chain. The source app is only replaced
+after the normal loader, signature and startup checks.
 
 The new app is assembled next to the installed one (an APFS clone, no extra space), its runtime is run against its game
 files (the loader probe: the game data read, the modules mapped, checked, linked and called across, with no window, GPU or
@@ -263,6 +268,9 @@ def game_data(tree, res, version, logs, env):
     installed = res / f'build/game-data/{version}'
     if all((installed / name).is_file() for name in build_app.game_data_files(version)):
         return installed
+    imported = tree / f'build/game-data/{version}'
+    if all((imported / name).is_file() for name in build_app.game_data_files(version)):
+        return imported
     say('the app has no game data folder yet (it was made before the game binary read one): making it from the work folder')
     try:
         run(['make', f'game-data-{version}'], logs / 'game-data.log', cwd=tree, env=env)
@@ -291,10 +299,15 @@ def seed_aliases(tree, res, version, new_data):
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('app', type=Path, help='the app build_app.py made (Tears of the Kingdom.app, Breath of the Wild.app)')
-    ap.add_argument('--work', type=Path, help='work folder to build in (default: TOTK_build or BotW_build next to the app); an '
-                                              'app made before the game data folder existed, and --seed, need the one of its build')
+    ap.add_argument('--work', type=Path, help='work folder to build in (default: TOTK_build or BotW_build next to the app); '
+                                              'legacy apps and --seed need verified work files from the original build '
+                                              'or restored with --import-app')
     ap.add_argument('--seed', action='store_true', help='also make the startup shaders again from the work folder\'s RomFS and '
                                                         'modules (no game file or keys), as needed when the translation chain changed')
+    ap.add_argument('--import-app', action='store_true', help='restore verified work files and legacy module tables from '
+                                                            'this app when the original work folder is unavailable; '
+                                                            'only repository-pinned game images are accepted; use --seed '
+                                                            'as well when the shader translation chain changed')
     args = ap.parse_args(argv)
     app = args.app.expanduser().resolve()
     game, version = app_identity(app)
@@ -309,6 +322,9 @@ def main(argv):
     say(f'{APPS[game][0]} {VERSIONS[version]["display_version"]}: {app}; work folder {work}')
     tree = build_app.prepare_work(work, py, logs)
     res = app / 'Contents/Resources/totk'
+    if args.import_app:
+        from import_app_data import import_app
+        import_app(app, tree, version, VERSIONS[version])
     data = game_data(tree, res, version, logs, env)
     check_game_data(data, res, version)
     check_rewriter(data, res, version, rewriter_sha256())

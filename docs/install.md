@@ -91,6 +91,25 @@ After pulling a newer version of this repository, you do not have to build the a
 python3.14 update_runtime.py "~/Games/Tears of the Kingdom.app"
 ```
 
+**An installed app without its original build folder:** `--import-app` restores work files from the app's
+repository-pinned modules and game images. For older arm64 apps it also converts the runtime's embedded tables into
+the current game data format, without executing that runtime. Image hashes and fonts are checked before use.
+Add `--seed` when the shader translation chain changed. Neither the original XCI/NSP nor keys are needed.
+
+For example, create a separate Breath of the Wild 1.6.0 development copy once, from the repository root:
+
+```sh
+mkdir -p BotW_build/dev
+cp -cR "/Applications/Breath of the Wild.app" BotW_build/dev/
+python3.14 update_runtime.py "BotW_build/dev/Breath of the Wild.app" \
+  --work BotW_build/runtime-dev --import-app --seed
+```
+
+For subsequent source changes, run the last command without `--import-app --seed`. The development copy uses the
+same player saves and cache by default; use `TOTK_PROFILE_DIR` for a save copy during tests. All generated game data
+stays in the ignored `BotW_build` folder. Compatibility with an older macOS also depends on the SDK and linked
+libraries' deployment targets, not just the app's `LSMinimumSystemVersion`.
+
 It took 46 seconds for a 1.4.3 app on an M4 Mac. Quit the game first, or the script waits until it closes. An app built before this split has no game data folder yet: the script makes the folder once from the work folder of the build that made the app (`TOTK_build` next to the app, or `--work <folder>`). Whatever the source, the folder is checked against the app's own code modules, RomFS index and fonts before anything is replaced. When a new runtime changes the shader translation chain, the app's startup shaders no longer fit it and the script stops; add `--seed` to make them again from the work folder's RomFS and modules (a few minutes, still without the game file or keys; the folder is checked to hold the app's files). The game's code modules are kept too, so they must be what this repository's code rewriter (`patch_nso.py`) makes: the rewrites it pins for the version, or, for a build with a mod's code patches, modules made by the same `patch_nso.py`. Otherwise the script also stops, because a runtime can rely on what the rewriter puts into the code, and the modules must be rewritten with `build_app.py`. A new game version or a mod's code patches need `build_app.py` as well. Before anything is replaced, the new runtime is run against the app's own game files, and if the updated app then fails its start check, the previous one is put back. The runtime holds nothing from the game, so `make -C games/totk binary-v143` (or `binary`, `binary-v112`, …) builds it with no game files at all.
 
 
