@@ -13,6 +13,7 @@ int mfxup_output_enabled(void);
 void settings_test_output_init(void);
 void settings_test_output_size(unsigned w, unsigned h);
 void settings_test_aspect_init(double view);
+void settings_test_aspect_frame(void);
 
 void dm_gfx_set_flag(const char *name, int value) {
     if (!strcmp(name, "mfx_interp")) mfx_set(value);
@@ -46,8 +47,17 @@ static int fakeLock;
 void nvn_fps_lock_set(int fps) { fakeLock = fps == 30 || fps == 40 || fps == 60 ? fps : 0; }
 int nvn_fps_lock(void) { return fakeLock; }
 /* runtime/gamepad_feedback.m's DualSense bow trigger switch without a controller. */
-static int fakeTriggers = 1, fakeTriggersLocked, fakeTriggersAvailable = 1;
-int runtime_triggers_available(void) { return fakeTriggersAvailable; }
+static int fakeTriggers = 1, fakeTriggersLocked;
+#ifndef GAME_BOTW160
+static int fakeTriggersAvailable = 1;
+#endif
+int runtime_triggers_available(void) {
+#ifdef GAME_BOTW160
+    return 0;   /* This game version has no bow-state reader. */
+#else
+    return fakeTriggersAvailable;
+#endif
+}
 int runtime_triggers_locked(void) { return fakeTriggersLocked; }
 int runtime_triggers_choice(void) { return fakeTriggers; }
 void runtime_triggers_choose(int on) { fakeTriggers = !!on; }
@@ -74,7 +84,7 @@ static NSPopUpButton *menu(NSString *title) { return (NSPopUpButton *)row(title)
 static void pick(NSString *title, NSString *choice) {
     NSPopUpButton *p = menu(title);
     assert(p.enabled && [p indexOfItemWithTitle:choice] >= 0);
-    [p selectItemWithTitle:choice]; [row(title) changed:p];
+    [p selectItemWithTitle:choice]; [row(title) changed:p]; settings_test_aspect_frame();
 }
 static void flip(NSString *title, BOOL on) {
     NSSwitch *s = (NSSwitch *)row(title).control;
@@ -151,19 +161,30 @@ int main(int argc, const char **argv) { @autoreleasepool {
 
     /* Resolution: the player picks; 1080p without MetalFX at the start. */
     mfxup_output_set(0); mfxup_set(0); shows(@"Resolution", @"1080p");
+    BOOL nativeResolution = !!(runtime_output_modes() & (1 << OUTPUT_MODE_NATIVE));
+    if (nativeResolution) {
     assert(menu(@"Resolution").numberOfItems == 5 && [menu(@"Resolution").itemTitles.firstObject isEqualToString:@"720p"]);
     pick(@"Resolution", @"720p"); assert(runtime_output_mode() == OUTPUT_MODE_720P && runtime_output_size_current() == SIZE(1280, 720));
     window_is(720);
+    } else {
+        assert(menu(@"Resolution").numberOfItems == 2);
+        assert([menu(@"Resolution") indexOfItemWithTitle:@"720p"] < 0);
+        assert(!runtime_output_mode_set(OUTPUT_MODE_720P) && !runtime_output_mode_set(OUTPUT_MODE_NATIVE));
+    }
     pick(@"Resolution", @"1080p + MetalFX upscaling");
     assert(runtime_output_mode() == OUTPUT_MODE_METALFX && mfxup_output_enabled() && runtime_output_size_current() == SIZE(1920, 1080));
+    if (nativeResolution) {
     pick(@"Resolution", @"2K (2560×1440)");
     assert(runtime_output_mode() == OUTPUT_MODE_NATIVE && !mfxup_output_enabled() && runtime_output_size_current() == SIZE(2560, 1440));
     window_is(1440);   /* the window takes the picked size at once */
+    }
     pick(@"Resolution", @"1080p");
     assert(runtime_output_mode() == OUTPUT_MODE_OFF && !mfxup_output_enabled() && runtime_output_size_current() == SIZE(1920, 1080));
     window_is(1080);
-    settings_test_output_size(2560, 1440); shows(@"Resolution", @"2K (2560×1440)");   /* set elsewhere: shown */
-    settings_test_output_size(1920, 1080);
+    if (nativeResolution) {
+        settings_test_output_size(2560, 1440); shows(@"Resolution", @"2K (2560×1440)");   /* set elsewhere: shown */
+        settings_test_output_size(1920, 1080);
+    }
 
     /* Aspect ratio: fixed at 16:9 while the game cannot change it; offered once its code is in (the next opening). */
     assert(!menu(@"Aspect ratio").enabled && [menu(@"Aspect ratio").titleOfSelectedItem isEqualToString:@"16:9"]);
@@ -181,11 +202,13 @@ int main(int argc, const char **argv) { @autoreleasepool {
     pick(@"Aspect ratio", @"16:9"); assert(runtime_aspect_now() == 0 && fabsf(runtime_aspect_ratio() - 16.0f / 9) < 0.001f);
     tick(); shaped(16.0 / 9);
     /* 2K + MetalFX for a 4K screen: the 2K canvas, the MetalFX output stage on, a 3840x2160 window (as far as the screen holds). */
+    if (nativeResolution) {
     pick(@"Resolution", @"2K + MetalFX upscaling (4K screens)");
     assert(runtime_output_mode() == OUTPUT_MODE_NATIVE_METALFX && runtime_output_size_current() == SIZE(2560, 1440) && mfxup_output_enabled());
     window_is(2160);
     pick(@"Resolution", @"2K (2560×1440)"); assert(runtime_output_mode() == OUTPUT_MODE_NATIVE && !mfxup_output_enabled());
     window_is(1440);
+    } else assert([menu(@"Resolution") indexOfItemWithTitle:@"2K + MetalFX upscaling (4K screens)"] < 0);
     pick(@"Resolution", @"1080p"); assert(runtime_output_size_current() == SIZE(1920, 1080)); window_is(1080);
 
     /* Switches. */
@@ -195,6 +218,10 @@ int main(int argc, const char **argv) { @autoreleasepool {
 
     /* The DualSense bow trigger: a switch; greyed out while TOTK_DUALSENSE_TRIGGERS or a test session decides, and on a
        game version without the bow's state (rows are made at each opening). */
+#ifdef GAME_BOTW160
+    shows(@"DualSense bow trigger", @"Not in this version");
+    assert(!menu(@"DualSense bow trigger").enabled);
+#else
     assert(switched(@"DualSense bow trigger")); flip(@"DualSense bow trigger", NO); assert(!fakeTriggers && !switched(@"DualSense bow trigger"));
     flip(@"DualSense bow trigger", YES); assert(fakeTriggers);
     press(18); fakeTriggersLocked = 1; fakeTriggers = 0; press(18); assert(settingsOpen);
@@ -202,6 +229,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     press(18); fakeTriggersLocked = 0; fakeTriggersAvailable = 0; press(18);
     assert(!menu(@"DualSense bow trigger").enabled && [menu(@"DualSense bow trigger").titleOfSelectedItem isEqualToString:@"Not in this version"]);
     press(18); fakeTriggersAvailable = 1; fakeTriggers = 1; press(18); assert(settingsOpen && switched(@"DualSense bow trigger"));
+#endif
 
     /* Controller type: auto names the controller it sees. */
     shows(@"Controller type", @"Auto (PlayStation)");
@@ -238,16 +266,24 @@ int main(int argc, const char **argv) { @autoreleasepool {
     for (unsigned k = 19; k <= 26; k++) if (k != 24 && k != 25) press(k);
     assert(mfx_requested() == interp && runtime_aspect_ratio() == shape && !settingsOpen && !taa_enabled() && !fakeMouse);
 
-    /* The contribute button with no contribution file (TOTK_SHADER_CONTRIB unset): says so, sends nothing. */
+    /* The footer contains only the keyboard hint, with no action buttons or empty button row. */
     press(18); assert(settingsOpen);
-    unsetenv("TOTK_SHADER_CONTRIB"); [settingsPanel contribute:[NSButton new]];
-    assert([settingsPanel.hint.stringValue hasPrefix:@"Nothing to contribute"]);
+    assert([settingsPanel.hint.stringValue hasPrefix:@"1 or Esc"]);
+    NSView *lastBand = settingsPanel.rows.lastObject.control.superview;
+    CGFloat footerGap = NSMinY(lastBand.frame) - NSMaxY(settingsPanel.hint.frame);
+    assert(footerGap >= 10 && footerGap <= 18);
+    for (NSView *view in settingsPanel.subviews)
+        if (NSMinY(view.frame) < NSMinY(lastBand.frame)) assert(![view isKindOfClass:NSButton.class]);
     press(18); assert(!settingsOpen);
 
     /* Chinese. */
     setenv("TOTK_UI_LANG", "zh", 1); press(18); assert(settingsOpen);
     shows(@"分辨率", @"1080p"); shows(@"手柄类型", @"自动（未接手柄）");
+#ifdef GAME_BOTW160
+    shows(@"DualSense 拉弓扳机", @"这个版本没有"); assert(!menu(@"DualSense 拉弓扳机").enabled);
+#else
     assert(switched(@"DualSense 拉弓扳机"));
+#endif
     fakePadDetected = GAMEPAD_TYPE_SWITCH; shows(@"手柄类型", @"自动（Switch）");
     pick(@"补帧", @"50+50"); assert(mfx_requested() == MFX_50);
     shows(@"震动强度", @"1×（默认）"); assert(switched(@"震动") && switched(@"体感瞄准"));

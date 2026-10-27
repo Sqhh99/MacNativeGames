@@ -278,7 +278,7 @@ The launcher checks the file at every start and names the first bad line in an a
 - **DualSense bow trigger (R2):** on / off (see DualSense adaptive triggers above; Breath of the Wild 1.9.0 and Tears of the Kingdom 1.4.3).
 - **Mouse:** mouse mode on / off (see Mouse above).
 - **Rumble, Rumble strength (0.5× to 4×) and Gyro aiming:** see Rumble and Gyro aiming above.
-- Two buttons at the bottom: **Contribute shaders and pipelines** sends the ones your game met that the shared list lacks (with the GitHub CLI `gh` when it is signed in, in the background; otherwise the GitHub form opens and Finder shows the file to drag in), and **Star the project** opens the GitHub page.
+- The footer shows the keyboard hint: **1** or **Esc** closes the panel; keyboard and mouse input do not reach the game while it is open.
 
 Keys 2–7 are no shortcuts any more. Text entry (naming a horse) uses the Mac keyboard. iPhone/iPad uses touch controls or a compatible game controller and has no settings panel. The touch layout follows a Switch controller: L and ZL at the top left, R and ZR at the top right, − and + between them, the d-pad on the left and A, B, X, Y on the right. The d-pad sits above the left stick and A, B, X, Y above the right stick, and L3 and R3 (stick presses) are in the bottom corners. Touch the left half away from the buttons and drag for the left stick, the right half for the camera (right stick); each stick is centred where your finger goes down. With a game controller connected the touch controls are hidden: touch the screen to show and use them, and they hide again 3 seconds after you lift your fingers.
 
