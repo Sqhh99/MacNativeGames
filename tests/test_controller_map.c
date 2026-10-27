@@ -96,6 +96,18 @@ int main(void) {
         expect(controller_map_target(0) == -1 && controller_map_target(1u << 9) == 9, "map entry targets");
         (void)def; (void)defModes;
     }
+    /* The drawing's assignment: one button now drives one action, held; the others keep theirs. */
+    {
+        uint16_t map[CONTROLLER_BUTTONS]; uint8_t modes[CONTROLLER_BUTTONS]; controller_map_default(map, modes);
+        modes[3] = CONTROLLER_TAP;
+        controller_map_assign(map, modes, 3, 9);
+        expect(map[3] == 1u << 9 && modes[3] == CONTROLLER_HOLD && map[9] == 1u << 9 && map[1] == 1u << 0, "north to ZR, held; R2 keeps ZR, east keeps A");
+        controller_map_assign(map, modes, 6, -1); expect(map[6] == 0, "none");
+        controller_map_assign(map, modes, 16, 11); expect(map[16] == 1u << 11, "the touchpad");
+        uint16_t before[CONTROLLER_BUTTONS]; memcpy(before, map, sizeof map);
+        controller_map_assign(map, modes, 22, 0); controller_map_assign(map, modes, 0, 16); controller_map_assign(map, modes, 0, -2);
+        expect(!memcmp(before, map, sizeof map), "out of range: unchanged");
+    }
     if (failures) return 1;
     printf("PASS: controller layout cases\n");
     return 0;

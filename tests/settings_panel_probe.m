@@ -341,8 +341,10 @@ int main(int argc, const char **argv) { @autoreleasepool {
 
     /* Key bindings: the default layout; a key, a modifier, a mouse button and a controller button bound (an input in use
        swaps places), key 1 cancels, Command keys pass, a right-click clears, the two resets. */
-    [settingsPanel selectPage:SETTINGS_PAGE_BINDINGS];
-    assert(settingsPanel.rows.count == 0 && settingsPanel.controllerTargets.count == 18 && !settingsPanel.resetButtons[0].hidden && !settingsPanel.resetButtons[1].hidden);
+    g_settings_bindings_list = YES; [settingsPanel selectPage:SETTINGS_PAGE_BINDINGS]; tick();
+    assert(!settingsPanel.drawings && settingsPanel.frame.size.width == SETTINGS_W);
+    assert(settingsPanel.rows.count == 0 && settingsPanel.controllerTargets.count == 19 && !settingsPanel.resetButtons[0].hidden && !settingsPanel.resetButtons[1].hidden &&
+           [settingsPanel.listToggle.title isEqualToString:@"Show drawings"] && settingsPanel.listToggle.enabled);
     fakePadDetected = -1; fakePadType = GAMEPAD_TYPE_AUTO; [settingsPanel refreshBindings];
     assert(titled(box(KEYMAP_X, 0), @"Space") && titled(box(KEYMAP_X, 1), @"—") && titled(box(KEYMAP_X, 2), @"Y"));   /* Xbox names: Switch X sits where Xbox Y is */
     assert(titled(box(KEYMAP_Y, 0), @"Left click") && titled(box(KEYMAP_ZL, 1), @"Wheel click") && titled(box(KEYMAP_A, 0), @"E") && titled(box(KEYMAP_A, 1), @"Return"));
@@ -380,10 +382,16 @@ int main(int argc, const char **argv) { @autoreleasepool {
     [settingsPanel.resetButtons[1] performClick:nil];
     uint16_t defaultMap[CONTROLLER_BUTTONS]; uint8_t defaultModes[CONTROLLER_BUTTONS]; controller_map_default(defaultMap, defaultModes);
     assert(!memcmp(fakeMap, defaultMap, sizeof defaultMap) && titled(box(KEYMAP_X, 2), @"Y"));
-    /* With a controller: A on a row waits for the new button; R1 / L1 change the page. */
+    /* With a controller: nothing is highlighted until it moves (user 2026-10-27); the first A only shows where it is, the
+       next on a row waits for the new button; R1 / L1 change the page. */
+    for (NSView *v in settingsPanel.controllerTargets) assert(v.layer.borderWidth == 0);
     [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:101 active:YES];
     [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1} time:101.1 active:YES];
+    assert(!settingsPanel.capturing && settingsPanel.controllerTargets[0].layer.borderWidth == 2);
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:101.2 active:YES];
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1} time:101.3 active:YES];
     assert(settingsPanel.capturing && settingsPanel.capturing.slot == 2);
+    settings_pointer_used(); assert(settingsPanel.controllerTargets[0].layer.borderWidth == 0);   /* a click: the highlight goes */
     [settingsPanel endCapture];
     [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:102 active:YES];
     [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1u << 7} time:102.1 active:YES];
@@ -392,6 +400,56 @@ int main(int argc, const char **argv) { @autoreleasepool {
     [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1u << 6} time:103.1 active:YES];
     assert(settingsPanel.page == SETTINGS_PAGE_BINDINGS);
     [settingsPanel selectPage:SETTINGS_PAGE_DISPLAY];
+
+    /* Key bindings as drawings (user 2026-10-27): the panel made wider for them; the keyboard and mouse, or the controller,
+       with what each key or button does; a click's menu of actions; the actions nothing drives; a controller moves through
+       the controller's buttons and changes them; a window too small for them gets the list. */
+    press(18); [window setContentSize:NSMakeSize(1280, 720)]; g_settings_bindings_list = NO; g_settings_bindings_device = 0; press(18); assert(settingsOpen);
+    for (NSView *v in settingsPanel.controllerTargets) assert(v.layer.borderWidth == 0);   /* nothing looks picked at the opening */
+    [settingsPanel selectPage:SETTINGS_PAGE_BINDINGS]; tick();
+    assert(settingsPanel.drawings && settingsPanel.page == SETTINGS_PAGE_BINDINGS && settingsPanel.frame.size.width == SETTINGS_WIDE_W);
+    assert(NSContainsRect(window.contentView.bounds, settingsPanel.frame) && settingsPanel.tabs.selectedSegment == SETTINGS_PAGE_BINDINGS);
+    assert(!settingsPanel.keyboardDiagram.hidden && settingsPanel.padDiagram.hidden && !settingsPanel.resetButtons[0].hidden && settingsPanel.resetButtons[1].hidden);
+    assert([settingsPanel.listToggle.title isEqualToString:@"Show as list"] && [settingsPanel.drawingsHelp.stringValue hasPrefix:@"Click a key"]);
+    TOTKKeyboardDiagram *kb = settingsPanel.keyboardDiagram;
+    NSRect eKey = [kb rectOfInput:14], oneKey = [kb rectOfInput:18], wheel = [kb rectOfInput:KEYMAP_MOUSE_FIRST + 2], leftClick = [kb rectOfInput:KEYMAP_MOUSE_FIRST];
+    assert([kb inputAt:NSMakePoint(NSMidX(eKey), NSMidY(eKey)) rect:NULL] == 14);
+    assert([kb inputAt:NSMakePoint(NSMidX(oneKey), NSMidY(oneKey)) rect:NULL] == -1);   /* key 1 opens the panel: not changeable */
+    assert([kb inputAt:NSMakePoint(NSMidX(wheel), NSMidY(wheel)) rect:NULL] == KEYMAP_MOUSE_FIRST + 2);
+    assert([kb inputAt:NSMakePoint(NSMinX(leftClick) + 8, NSMidY(leftClick)) rect:NULL] == KEYMAP_MOUSE_FIRST);
+    NSMenu *actions = [settingsPanel menuForInput:14 pad:NO]; NSMenuItem *ticked = nil, *jump = nil;
+    for (NSMenuItem *i in actions.itemArray) { if (i.state == NSControlStateValueOn) ticked = i; if (i.action && i.tag == KEYMAP_X) jump = i; }
+    assert([actions.itemArray.firstObject.title isEqualToString:@"E"] && ticked && ticked.tag == KEYMAP_A && jump && [actions.itemArray.lastObject.title isEqualToString:@"None (unused)"]);
+    [settingsPanel menuPicked:jump]; runtime_keymap_get(&keysNow);   /* E jumps now (with Space); confirm keeps Return */
+    assert(keysNow.slot[KEYMAP_X][0] == 49 && keysNow.slot[KEYMAP_X][1] == 14 && keysNow.slot[KEYMAP_A][0] == 36 && keysNow.slot[KEYMAP_A][1] == KEYMAP_NONE);
+    [settingsPanel assignInput:36 action:-1]; assert([diagram_missing(0) isEqualToString:@"No key: Confirm / Interact"]);
+    [settingsPanel.resetButtons[0] performClick:nil]; assert(diagram_missing(0) == nil);
+    settingsPanel.deviceTabs.selectedSegment = 1; [settingsPanel deviceChanged:settingsPanel.deviceTabs];
+    assert(settingsPanel.keyboardDiagram.hidden && !settingsPanel.padDiagram.hidden && settingsPanel.resetButtons[0].hidden && !settingsPanel.resetButtons[1].hidden);
+    TOTKControllerDiagram *pd = settingsPanel.padDiagram; NSRect north = [pd rectOfPhysical:3];
+    assert([pd physicalAt:NSMakePoint(NSMidX(north), NSMidY(north)) rect:NULL] == 3 && [pd order].count == 16 && [pd order][0].intValue == 8);
+    actions = [settingsPanel menuForInput:3 pad:YES]; int choices = 0; ticked = nil;
+    for (NSMenuItem *i in actions.itemArray) if (i.action) { choices++; assert(i.tag < KEYMAP_SWITCH_BUTTONS); if (i.state == NSControlStateValueOn) ticked = i; }
+    assert(choices == 17 && ticked.tag == KEYMAP_X);   /* 16 buttons and none: no stick directions */
+    [settingsPanel assignPad:3 action:KEYMAP_ZR]; assert(fakeMap[3] == 1u << KEYMAP_ZR && fakeMap[9] == 1u << KEYMAP_ZR && [diagram_missing(1) isEqualToString:@"No button: Jump"]);
+    assert(settingsPanel.controllerTargets.count == 19 && pd.selected == -1);
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:200 active:YES];
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1u << 15} time:200.1 active:YES];   /* shows where it is */
+    assert(settingsPanel.controllerIndex == 0 && settingsPanel.deviceTabs.layer.borderWidth == 2 && pd.selected == -1);
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:201 active:YES];
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1u << 15} time:201.1 active:YES];
+    assert(settingsPanel.controllerIndex == 1 && pd.selected == 8 && settingsPanel.deviceTabs.layer.borderWidth == 0);   /* LT */
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:202 active:YES];
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1u << 14} time:202.1 active:YES];
+    assert(fakeMap[8] == 1u << KEYMAP_ZR);   /* right: the next action, after lock on the bow */
+    settings_pointer_used(); assert(pd.selected == -1);
+    [settingsPanel.resetButtons[1] performClick:nil]; assert(!memcmp(fakeMap, defaultMap, sizeof defaultMap) && diagram_missing(1) == nil);
+    [settingsPanel.listToggle performClick:nil]; tick(); assert(g_settings_bindings_list && !settingsPanel.drawings && settingsPanel.page == SETTINGS_PAGE_BINDINGS);
+    [settingsPanel.listToggle performClick:nil]; tick(); assert(!g_settings_bindings_list && settingsPanel.drawings);
+    [settingsPanel selectPage:SETTINGS_PAGE_INPUT]; tick(); assert(!settingsPanel.drawings && settingsPanel.frame.size.width == SETTINGS_W);
+    press(18); [window setContentSize:NSMakeSize(900, 600)]; g_settings_page = SETTINGS_PAGE_BINDINGS; press(18);
+    assert(settingsOpen && !settingsPanel.drawings && settingsPanel.frame.size.width == SETTINGS_W && !settingsPanel.listToggle.enabled);   /* too small: the list */
+    press(18); [window setContentSize:NSMakeSize(1280, 720)]; g_settings_page = SETTINGS_PAGE_DISPLAY; press(18); assert(settingsOpen);
 
     /* Language: greyed out while TOTK_UI_LANG decides; otherwise English, 中文 or 日本語, saved, and the open panel made
        again in it. */

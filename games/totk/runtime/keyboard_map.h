@@ -150,6 +150,21 @@ static inline int keymap_bind(KeyMap *m, int action, int slot, int input) {
     return 1;
 }
 
+/* The key bindings drawing (settings panel): input now drives action (-1: nothing). It leaves the action it drove (the
+   other input of that action moves up), and takes a free slot of the new action, or its second one, whose input is then
+   unused. Nothing swaps: the drawing shows every key, so a key left without an action is seen. 0 when not bindable. */
+static inline int keymap_assign(KeyMap *m, int input, int action) {
+    if (!keymap_bindable(input) || action < -1 || action >= KEYMAP_ACTIONS) return 0;
+    int slot, was = keymap_action_of(m, input, &slot);
+    if (was == action) return 1;
+    if (was >= 0) {
+        m->slot[was][slot] = KEYMAP_NONE;
+        if (m->slot[was][0] == KEYMAP_NONE) { m->slot[was][0] = m->slot[was][1]; m->slot[was][1] = KEYMAP_NONE; }
+    }
+    if (action >= 0) m->slot[action][m->slot[action][0] == KEYMAP_NONE ? 0 : 1] = (uint8_t)input;
+    return 1;
+}
+
 /* Applies a layout file's text to m (start from keymap_default). Returns 0, or the 1-based number of the first bad line
    with *error naming the problem; m is then unchanged. */
 static inline int keymap_parse(const char *text, KeyMap *m, const char **error) {

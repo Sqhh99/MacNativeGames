@@ -113,6 +113,18 @@ int main(void) {
     expect(keymap_input_parse("MOUSE_LEFT", 10) == MOUSE_LEFT && keymap_input_parse("f12", 3) == 111 && keymap_input_parse("nope", 4) < 0, "input names");
     expect(!strcmp(keymap_input_label(KEY_ESCAPE), "Esc") && !strcmp(keymap_input_label(MOUSE_MIDDLE), "Wheel click") && !keymap_input_label(140), "labels");
 
+    /* The drawing's assignment: a key now drives an action, nothing swaps. */
+    m = d;
+    expect(keymap_assign(&m, KEY_E, KEYMAP_X) && m.slot[KEYMAP_X][0] == KEY_SPACE && m.slot[KEYMAP_X][1] == KEY_E &&
+           m.slot[KEYMAP_A][0] == KEY_RETURN && m.slot[KEYMAP_A][1] == KEYMAP_NONE, "E to jump: the free slot; confirm keeps Return, moved up");
+    expect(keymap_assign(&m, KEY_J, KEYMAP_X) && m.slot[KEYMAP_X][0] == KEY_SPACE && m.slot[KEYMAP_X][1] == KEY_J && keymap_action_of(&m, KEY_E, NULL) < 0,
+           "both slots taken: the second one is replaced, its key unused");
+    expect(keymap_assign(&m, KEY_RETURN, -1) && m.slot[KEYMAP_A][0] == KEYMAP_NONE && !buttons_of(&m, KEY_RETURN), "none");
+    expect(keymap_assign(&m, KEY_SPACE, KEYMAP_X) && m.slot[KEYMAP_X][0] == KEY_SPACE && m.slot[KEYMAP_X][1] == KEY_J, "the action it already drives: unchanged");
+    expect(keymap_assign(&m, MOUSE_MIDDLE, KEYMAP_MOVE_UP) && m.slot[KEYMAP_MOVE_UP][1] == MOUSE_MIDDLE && m.slot[KEYMAP_ZL][0] == KEY_Q &&
+           m.slot[KEYMAP_ZL][1] == KEYMAP_NONE, "a mouse button to a direction");
+    expect(!keymap_assign(&m, KEY_1, KEYMAP_A) && !keymap_assign(&m, KEY_E, KEYMAP_ACTIONS) && !keymap_assign(&m, KEY_E, -2), "refused");
+
     if (failures) return 1;
     printf("PASS: keyboard layout cases\n");
     return 0;

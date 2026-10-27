@@ -45,6 +45,14 @@ static inline int controller_map_target(uint16_t entry) {
     return -1;
 }
 
+/* The key bindings drawing (settings panel): physical button now drives Switch button action (-1: nothing), held while
+   it is down. Other buttons keep theirs, so two buttons may drive one action and an action may have none (the drawing
+   lists those). */
+static inline void controller_map_assign(uint16_t map[CONTROLLER_BUTTONS], uint8_t modes[CONTROLLER_BUTTONS], int physical, int action) {
+    if (physical < 0 || physical >= CONTROLLER_BUTTONS || action < -1 || action >= CONTROLLER_SWITCH_BUTTONS) return;
+    map[physical] = action < 0 ? 0 : (uint16_t)(1u << action); modes[physical] = CONTROLLER_HOLD;
+}
+
 /* A layout file for map and modes that controller_map_parse reads back: one line for every button that differs from the
    default. The length, or -1 when it does not fit. */
 static inline int controller_map_format(const uint16_t map[CONTROLLER_BUTTONS], const uint8_t modes[CONTROLLER_BUTTONS], char *out, size_t size) {

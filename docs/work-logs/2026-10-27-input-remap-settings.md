@@ -99,3 +99,28 @@ AI disclosure: the code, tests and documentation were written by Claude Code (Op
 - This work log written under `docs/work-logs/` as the skill requires; no code review was made and no pull request opened, so there is no review archive or PR record.
 - `CLAUDE.md` (made earlier the same day with `/init`) committed with a `Mandatory records` section pointing at the skill, as the skill's "Extending this skill" asks, and corrected for the third native test in `make check`; `AGENTS.md` gained a short `Project records` section so other agents reach the skill too.
 - Committed as `Sqhh99 <sqhh99@gmail.com>` on `sqhh99` and pushed to `origin/sqhh99`, together with the four local commits that were already ahead of it (`cc515fc`, `d46ffae`, `29c487a`, `9bfca60`).
+
+## 8. Follow-up: key bindings as drawings
+
+> The current settings interface for mouse, keyboard, and controller is presented as a simple list. I believe the visualization could be improved: for mouse and keyboard mode, for instance, you could display an image of the peripherals with the corresponding key assignments shown directly on them—this would be much more intuitive. The same applies to the controller—showing an image of the controller with the button mappings indicated would also be clearer. You don’t need highly detailed, photorealistic renderings; simple line drawings would suffice. Please go ahead and build the interface, then send me a preview image; if I’m happy with it, you can proceed with the full implementation.
+
+> Wow! This looks really great—let’s go with this and implement it accordingly.
+
+> I encountered a minor issue while playing: in the settings menu, the first option is selected by default, even though I haven’t actually made a selection myself. In my view, an item should only enter a "selected" state after I have explicitly chosen it using my mouse.
+
+Plan: a standalone prototype rendered to PNG (keyboard and mouse; controller in the Xbox and PlayStation layouts) for approval; after approval, the same drawing code as `runtime/bindings_diagram.h`, wired into the panel; the controller highlight made to wait for a controller.
+
+| File | Change | Addresses |
+|---|---|---|
+| `games/totk/runtime/bindings_diagram.h` (new) | Line drawings of a Mac keyboard with the mouse and of a controller (Xbox / Switch or PlayStation layout), what each key or button does written on it, coloured by kind; hit-testing; the actions nothing drives; English, Chinese and Japanese | drawings |
+| `games/totk/runtime/settings_panel.h` | Key bindings page: the drawings with a keyboard-and-mouse / controller switch, a menu of actions on click, "Show as list" for the earlier list; the panel made 960 × 530 on that page only (rebuilt when entering or leaving it), the list when the window is too small; controller navigation of the controller drawing (up / down picks a button, left / right changes it); the controller highlight shown only after a controller moves in the panel, hidden by any click in it | drawings, highlight |
+| `games/totk/runtime/keyboard_map.h`, `controller_map.h` | `keymap_assign`, `controller_map_assign`: the drawing's assignment (no swap) | drawings |
+| `tests/settings_panel_probe.m`, `games/totk/tests/settings_controller/probe.m` | Drawings, menus, assignment, missing-actions line, device switch, list toggle, size fallback, controller navigation; nothing highlighted at the opening, the first controller input only shows the highlight, a click hides it | tests |
+| `tests/test_keyboard_map.c`, `tests/test_controller_map.c` | Assignment cases | tests |
+| `docs/controls.md`, `docs/controls.zh-CN.md` | The drawings, how to change a binding, the highlight | docs |
+
+Decisions: the drawings assign without swapping (every key is visible, and the actions left without input are listed under the drawing); the list keeps its swap. A key given to an action whose two slots are full replaces the second. The wider panel is used on the key bindings page only, as proposed with the preview.
+
+Verification: `tests.test_settings_panel` (four game versions), `tests.test_text_keyboard`, `tests.test_mouse`, `tests.test_gamepad_type`, `tests.test_keyboard_map`, `tests.test_controller_map`, `tests.test_ui_language` pass; the keyboard-map and controller-map tests pass under UBSan; `make build/totk-native-v143 build/totk-native-botw190` builds with `-Werror`. The real panel was rendered to PNG (keyboard and mouse in English, the controller in Japanese with a button picked by the controller, the Display page just opened with nothing highlighted) and looked at. The NSMenu itself is not driven in the tests (its items and their effect are); clicking through it was not tried by the agent. Both apps rebuilt afterwards with `build/build_game.py` from this commit's tree: Tears of the Kingdom 1.4.3 in 4 min (31,305 startup shaders in the Metal cache) and Breath of the Wild 1.9.0 in 4 min (21,228), each passing the build's start check; not played by the agent.
+
+Open items: the menu cannot be driven with a controller (the controller drawing changes a button with left / right instead); the keyboard drawing is a US layout, so the letters on an AZERTY or other layout's keys differ from the drawing.
