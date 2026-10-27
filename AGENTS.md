@@ -4,7 +4,7 @@ These instructions apply to the entire repository and to all agents working in i
 
 ## Branch roles
 
-- `main` is reserved for synchronizing code from `upstream/main`.
+- `main` is a local upstream reference snapshot, not the active development branch.
 - Do not commit personal code, documentation, tests, or configuration changes to `main`.
 - Do not merge personal branches into `main`.
 - `sqhh99` is the long-lived branch for the owner's changes.
@@ -28,8 +28,10 @@ These instructions apply to the entire repository and to all agents working in i
 ## Upstream synchronization
 
 - `upstream` is the original project; `origin` is the owner's fork.
-- Synchronize `main` from `upstream/main` without adding personal changes.
-- Bring upstream updates into `sqhh99` separately, preserving the owner's changes.
+- Do not fetch or pull `upstream/main` unless the owner explicitly requests a new upstream update.
+- Do not push `main` to `origin` unless the owner explicitly requests it. The remote `main` may remain older than the local snapshot.
+- When asked to merge `main` into `sqhh99`, use the existing local `main` without refreshing it from the network.
+- Preserve the owner's changes when merging that snapshot into `sqhh99`.
 
 ## Commit hygiene
 
