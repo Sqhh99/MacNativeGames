@@ -37,3 +37,25 @@ These instructions apply to the entire repository and to all agents working in i
 
 - Use `Sqhh99 <sqhh99@gmail.com>` for the owner's commits.
 - Stage only files relevant to the requested change. Do not include downloaded game files, key archives, credentials, saves, or build artifacts.
+
+## Local game assets
+
+- Keep local inputs under `game-assets/`, excluded from Git.
+- Use ASCII English directory and file names. Organize each game by purpose and then version, such as `breath-of-the-wild/updates/v1.9.0/`.
+- Keep base packages, combined images, separate updates, DLC, mods, cheats, and guides in their respective categories. Retain older versions without overwriting them.
+- Keep shared fonts in `game-assets/shared/fonts/`, preserving the filenames required by the build tools.
+- Keep one shared key archive at `game-assets/shared/keys/switch-keys-v22.5.0.zip`. The three original archives were verified byte-for-byte identical and the keys were checked against both games; do not recreate per-game copies.
+- Preserve the asset manifest's original-path mappings and content hashes. Do not print key values or commit the asset library.
+- Keep mods and cheats with unconfirmed compatibility under `unknown`; do not install or enable them as part of an ordinary build.
+
+## Build layout and selected versions
+
+- Put all game builds under the repository's `build/<game>-<version>/` directory, using the game abbreviations `botw` and `totk`.
+- Use `build/botw-1.9.0/` and `build/totk-1.4.3/` for the currently requested builds. Do not use an extra game/version nesting level.
+- Place each version's work folder at `<build-directory>/work/`, and its final app and DMG directly in `<build-directory>/`.
+- Always pass explicit `--work` and `-o` paths to the build scripts so their legacy defaults do not create `BotW_build/` or `TOTK_build/` again.
+- The owner requested removal of the old root-level `BotW_build/` and `TOTK_build/`. Preserve small integrity and migration records under `build/records/` before cleanup; do not remove game inputs, installed applications, or the user's saves.
+- Build BOTW 1.9.0 from its base NSP, separate 1.9.0 update NSP, both DLC NSPs, shared fonts, and the shared keys.
+- Build TOTK 1.4.3 from its base XCI, separate 1.4.3 update NSZ, shared fonts, and the shared keys.
+- Include the owner's existing settings-panel customization in personal builds: remove the shader/pipeline contribution and project-star actions, and keep suitable footer spacing while preserving supported upstream controls.
+- Validate each completed app before packaging its DMG. Keep final deliverables in the build directory unless the owner explicitly requests installation.

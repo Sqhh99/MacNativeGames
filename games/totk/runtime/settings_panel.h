@@ -29,15 +29,12 @@
                                                              switches first, TOTK_RUMBLE_GAIN the strength (the row greyed
                                                              out); a device the run started without comes at the next
                                                              launch (its title says so)
-   Below the rows two buttons (user 2026-10-25): contribute the shaders and pipelines the shared list lacks (sent with gh
-   in the background when it is signed in, as the launcher's reminder does; else the GitHub form opens and Finder shows the
-   file), and star the project (its GitHub page). A setting this game or start cannot change shows its one value, greyed out. While the panel is open the game gets no
+   A keyboard and controller hint below the rows explains navigation and closing. A setting this game or start cannot
+   change shows its one value, greyed out. While the panel is open the game gets no
    keyboard, mouse or controller input (TOTKInputView, front_mouse_update and gamepad capture). The
    controls read their values again twice a second, so they always show what is in force. */
 #pragma once
 #include "aspect_math.h"   /* aspect_near, ASPECT_GAME */
-#include "../third_party/d2r_gfx/gfx/nvn/totk_shader_contrib.h"   /* the contribution file, TOTK_REPO_URL */
-#include "contrib_submit.h"   /* gh_path, contrib_submit (shared with app/launcher.m) */
 
 void dm_gfx_set_flag(const char *name, int value);
 void nvn_fps_lock_set(int fps);   /* gfx/nvn/hle_nvn.c: 0 off, 30, 40 or 60 */
@@ -208,14 +205,14 @@ static NSArray<TOTKSettingRow *> *settings_rows(void) {
 -(void)controllerHint;
 @property(strong) NSTimer *timer;
 @property NSPoint grab;   /* where in the panel the drag started */
-@property(strong) NSTextField *hint;   /* the bottom line; the buttons' results show there */
+@property(strong) NSTextField *hint;   /* the bottom keyboard hint */
 -(void)refresh;
 @end
 /* Where the player dragged the panel (user 2026-10-25: it can be moved), as the fraction of the free room left and below
    it, so a new opening and a resized window keep the spot; -1 = centred. */
 static NSPoint g_settings_at = {-1, -1};
 @implementation TOTKSettingsPanel
-enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 54, SETTINGS_BOTTOM = 86, SETTINGS_POP_W = 260 };
+enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 54, SETTINGS_BOTTOM = 50, SETTINGS_POP_W = 260 };
 -(instancetype)init{
  NSArray<TOTKSettingRow *> *rows=settings_rows();
  /* The rows close up (down to 24 pt, 2 pt apart: a 26 pt menu then meets the next one's edge) when the panel would not fit the window (21:9 or 32:9 on a laptop
@@ -243,11 +240,6 @@ enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 5
    p.enabled=r.set!=nil;r.control=p;}
   r.control.refusesFirstResponder=YES;r.control.target=r;r.control.action=@selector(changed:);[band addSubview:r.control];[self.controllerTargets addObject:band];
  }
- CGFloat bw=(SETTINGS_W-28-10)/2;
- NSButton *contrib=[NSButton buttonWithTitle:settings_text("贡献着色器和管线","Contribute shaders and pipelines") target:self action:@selector(contribute:)];
- contrib.frame=NSMakeRect(14,40,bw,30);contrib.refusesFirstResponder=YES;[self addSubview:contrib];[self.controllerTargets addObject:contrib];
- NSButton *star=[NSButton buttonWithTitle:settings_text("⭐ 给作者点赞","⭐ Star the project") target:self action:@selector(star:)];
- star.frame=NSMakeRect(14+bw+10,40,bw,30);star.refusesFirstResponder=YES;[self addSubview:star];[self.controllerTargets addObject:star];
  NSTextField *hint=[NSTextField labelWithString:settings_text("按 1 或 Esc 关闭 · 打开时键盘和鼠标不会传给游戏","1 or Esc closes it · keyboard and mouse do not reach the game while it is open")];
  hint.font=[NSFont systemFontOfSize:11];hint.textColor=[NSColor colorWithCalibratedWhite:0.7 alpha:1];hint.alignment=NSTextAlignmentCenter;
  hint.lineBreakMode=NSLineBreakByTruncatingMiddle;hint.frame=NSMakeRect(10,5,SETTINGS_W-20,32);hint.maximumNumberOfLines=2;[self addSubview:hint];self.hint=hint;
@@ -258,8 +250,7 @@ enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 5
 -(void)refresh{for(TOTKSettingRow *r in self.rows)[r refresh];}
 -(BOOL)controllerEnabled:(NSInteger)i{
  if(i<0||i>=(NSInteger)self.controllerTargets.count)return NO;
- if(i<(NSInteger)self.rows.count){TOTKSettingRow *r=self.rows[i];return r.set!=nil&&r.control.enabled;}
- return ((NSButton *)self.controllerTargets[i]).enabled;
+ TOTKSettingRow *r=self.rows[i];return r.set!=nil&&r.control.enabled;
 }
 -(void)controllerHighlight{
  if(![self controllerEnabled:self.controllerIndex]){
@@ -288,7 +279,6 @@ enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 5
 }
 -(void)controllerChange:(int)step select:(BOOL)select{
  NSInteger i=self.controllerIndex;if(![self controllerEnabled:i])return;
- if(i>=(NSInteger)self.rows.count){if(select)[(NSButton *)self.controllerTargets[i] performClick:nil];return;}
  TOTKSettingRow *r=self.rows[i];
  if(r.choices){
   NSPopUpButton *p=(NSPopUpButton *)r.control;NSInteger n=p.numberOfItems;if(n<2)return;
@@ -316,28 +306,6 @@ enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 5
  if(edges&(type==GAMEPAD_TYPE_SWITCH?2u:1u))[self controllerChange:1 select:YES];
 }
 -(void)close:(id)sender{(void)sender;settings_show(0);}
-/* The shaders and pipelines this game met that the shared list lacks (totk_shader_contrib.h): sent with gh off the main
-   thread, the issue then opened; without gh (or when it fails) the GitHub form opens and Finder shows the file to drag in. */
--(void)contribute:(NSButton *)button{
- NSString *path=totk_contrib_path();NSUInteger rows=path?totk_contrib_read(path).count:0;
- if(!rows){self.hint.stringValue=settings_text("现在没有要贡献的着色器和管线：公共清单里都有了","Nothing to contribute now: the shared list has them all");return;}
- button.enabled=NO;self.hint.stringValue=[NSString stringWithFormat:@(TOTK_UI("正在提交 %lu 条着色器和管线…","Sending %lu shaders and pipelines…")),(unsigned long)rows];
- __weak TOTKSettingsPanel *weak=self;
- dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
-  NSString *gh=gh_path(),*issue=gh?contrib_submit(gh,path,rows):nil;
-  dispatch_async(dispatch_get_main_queue(),^{
-   button.enabled=YES;
-   if(issue){totk_contrib_reminded(path,rows);   /* the launcher's reminder counts from here */
-    weak.hint.stringValue=[NSString stringWithFormat:@(TOTK_UI("已提交 %lu 条，谢谢你的贡献！","Sent %lu, thank you for contributing!")),(unsigned long)rows];
-    [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:issue]];fprintf(stderr,"[totk] settings: contribution sent, %s\n",issue.UTF8String);return;}
-   weak.hint.stringValue=gh?settings_text("自动提交没成功：已打开提交页面，把访达里的文件拖进去","Sending did not work: drag the file Finder shows into the form")
-                           :settings_text("已打开提交页面：把访达里的文件拖进去","The form is open: drag the file Finder shows into it");
-   [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@TOTK_CONTRIB_ISSUE_URL]];
-   [NSWorkspace.sharedWorkspace activateFileViewerSelectingURLs:@[[NSURL fileURLWithPath:path]]];});});
-}
-/* The project's GitHub page, where the player stars it (as the launcher's star button). */
--(void)star:(id)sender{(void)sender;[NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@TOTK_REPO_URL]];
- self.hint.stringValue=settings_text("谢谢支持！在打开的 GitHub 页面右上角点 Star","Thank you! Click Star at the top right of the GitHub page");}
 -(void)center{if(!self.superview)return;NSSize s=self.superview.bounds.size,p=self.frame.size;
  CGFloat fx=g_settings_at.x<0?0.5:g_settings_at.x,fy=g_settings_at.y<0?0.5:g_settings_at.y;
  [self setFrameOrigin:NSMakePoint(floor(fmax(0,s.width-p.width)*fx),floor(fmax(0,s.height-p.height)*fy))];}

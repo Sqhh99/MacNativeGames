@@ -155,6 +155,16 @@ With `--update`, use that version's folder (`v112`, `v121` or `v143`) instead of
 
 ## Update the app
 
+**An installed app without its original build folder:** `--import-app` restores work data from the app's repository-pinned modules and game images, including the tables embedded in older arm64 apps. It verifies the complete base/DLC hashes and the shared fonts without executing the old binary. Add `--seed` when the shader translation chain changed. Keep the installed app as a source and update a development copy:
+
+```sh
+mkdir -p build/botw-1.6.0
+cp -cR "/Applications/Breath of the Wild.app" build/botw-1.6.0/
+python3.14 update_runtime.py "build/botw-1.6.0/Breath of the Wild.app" --work build/botw-1.6.0/work --import-app --seed
+```
+
+This restores only a game/version whose data is present in the installed app; it does not turn BOTW 1.6.0 into 1.9.0.
+
 - **New version of this repository** (after `git pull`): `python3.14 update_runtime.py "<the app>"` updates it in about a minute, without the game files or keys. Quit the game first. If it says the startup shaders no longer fit, add `--seed`.
 - **Another game version:** run `build_app.py` again with the new `--update` and the same `-o`. It replaces the app. Before the first start on the new version, the app backs up your saves next to them as `profile-before-<version>`; keep that backup if you may go back.
 - **Mods:** `--mod "<mod folder>" --install-mod-romfs` builds the app with a mod's code patches and installs its data. See [mods.md](mods.md), [merged-mod-pack.md](merged-mod-pack.md) and [translation-mods.md](translation-mods.md).

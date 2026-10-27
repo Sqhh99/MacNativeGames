@@ -12,7 +12,10 @@ __pycache__/
 *.xcz
 *.bfttf
 *.sav
+# local game library, including archives, fonts, and migration records
+/game-assets/
 # build output (the work folder normally lives next to the card image)
+/build/
 TOTK_build/
 BotW_build/
 *.app/

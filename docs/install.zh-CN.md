@@ -168,6 +168,16 @@ python3.14 games/totk/ios/tools/install_device.py "<文件夹>/TOTK-Vision.app" 
 
 ## 更新 App
 
+**只有安装好的旧 App，没有原打包工作目录：** `--import-app` 可以从 App 恢复工作数据，包括旧版 arm64 App 中内嵌的模块表。只接受仓库登记过的代码与游戏数据，核对本体和 DLC 的完整哈希及共享字体，不执行旧程序。着色器翻译链变化时同时加 `--seed`。保留安装版作为来源，在开发副本中更新：
+
+```sh
+mkdir -p build/botw-1.6.0
+cp -cR "/Applications/Breath of the Wild.app" build/botw-1.6.0/
+python3.14 update_runtime.py "build/botw-1.6.0/Breath of the Wild.app" --work build/botw-1.6.0/work --import-app --seed
+```
+
+此方式只能恢复 App 已包含的游戏和版本，不能把旷野之息 1.6.0 升为 1.9.0。
+
 - **本仓库有新版本**（`git pull` 之后）：
   - 先退出游戏，再运行 `python3.14 update_runtime.py "<App 路径>"`，约一分钟更新完，不需要游戏文件和密钥。
   - 它提示启动着色器不再匹配时，加上 `--seed`。
