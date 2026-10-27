@@ -37,6 +37,17 @@ void runtime_setting_save(const char *name, const char *word, const char *what) 
     (void)what; snprintf(savedName, sizeof savedName, "%s", name); snprintf(savedWord, sizeof savedWord, "%s", word);
 }
 int runtime_setting_word(const char *name, char *word, size_t size) { (void)name; (void)word; (void)size; return 0; }
+static char removedName[64];
+void runtime_setting_remove(const char *name) { snprintf(removedName, sizeof removedName, "%s", name); }
+/* runtime/gamepad.m's controller layout and mouse sensitivity, kept here. */
+static uint16_t fakeMap[CONTROLLER_BUTTONS]; static uint8_t fakeModes[CONTROLLER_BUTTONS];
+void runtime_controller_map_get(uint16_t *map, uint8_t *modes) { memcpy(map, fakeMap, sizeof fakeMap); memcpy(modes, fakeModes, sizeof fakeModes); }
+void runtime_controller_map_set(const uint16_t *map, const uint8_t *modes) { memcpy(fakeMap, map, sizeof fakeMap); memcpy(fakeModes, modes, sizeof fakeModes); }
+void runtime_controller_map_reset(void) { controller_map_default(fakeMap, fakeModes); }
+static int fakeSensitivity = 50, fakeSensitivityLocked;
+int runtime_mouse_sensitivity(void) { return fakeSensitivity; }
+int runtime_mouse_sensitivity_locked(void) { return fakeSensitivityLocked; }
+void runtime_mouse_sensitivity_set(int value) { fakeSensitivity = value; }
 static int fakeSettingsCapture;
 void runtime_gamepad_text_capture(int on) { fakeSettingsCapture = !!on; }
 /* runtime/hid_feedback.c's and gamepad_feedback.m's rumble, strength and gyro switches without a controller. */
@@ -75,7 +86,9 @@ uint64_t runtime_now_ns(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); 
 
 #define SIZE(w, h) ((uint64_t)(h) << 32 | (w))
 static void tick(void) { [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]]; }
-static void press(unsigned key) { runtime_input_key_synthetic(key, 1); runtime_input_key_synthetic(key, 0); tick(); }
+/* Key 1 toggles the panel on the main queue; a run loop pass may end before it is served (right after a key binding was
+   captured), so two. */
+static void press(unsigned key) { runtime_input_key_synthetic(key, 1); runtime_input_key_synthetic(key, 0); tick(); tick(); }
 static void key_event(unsigned short code, BOOL down) {
     NSEvent *e = [NSEvent keyEventWithType:down ? NSEventTypeKeyDown : NSEventTypeKeyUp location:NSZeroPoint modifierFlags:0
                                  timestamp:0 windowNumber:window.windowNumber context:nil characters:@"x"
@@ -84,7 +97,7 @@ static void key_event(unsigned short code, BOOL down) {
     tick();
 }
 static TOTKSettingRow *row(NSString *title) {
-    for (TOTKSettingRow *r in settingsPanel.rows) if ([r.title hasPrefix:title]) return r;
+    for (TOTKSettingRow *r in settingsPanel.allRows) if ([r.title hasPrefix:title]) return r;
     fprintf(stderr, "no row %s\n", title.UTF8String); abort();
 }
 static NSPopUpButton *menu(NSString *title) { return (NSPopUpButton *)row(title).control; }
@@ -115,10 +128,23 @@ static void shaped(double ratio) {
     NSSize now = window.contentView.bounds.size;
     if (fabs(now.width / now.height - ratio) > 0.01) { fprintf(stderr, "window %.0fx%.0f, expected ratio %.3f\n", now.width, now.height, ratio); abort(); }
 }
+static NSEvent *key_down(unsigned short code, NSEventModifierFlags flags) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:window.windowNumber
+                             context:nil characters:@"x" charactersIgnoringModifiers:@"x" isARepeat:NO keyCode:code];
+}
+static TOTKBindingButton *box(int action, int slot) {
+    for (TOTKBindingButton *b in settingsPanel.bindingButtons) if (b.gameAction == action && b.slot == slot) return b;
+    fprintf(stderr, "no box %d/%d\n", action, slot); abort();
+}
+static BOOL titled(NSButton *b, NSString *text) {
+    if ([b.title isEqualToString:text]) return YES;
+    fprintf(stderr, "box shows %s, expected %s\n", b.title.UTF8String, text.UTF8String); return NO;
+}
 static BOOL switched(NSString *title) { [settingsPanel.timer fire]; return ((NSSwitch *)row(title).control).state == NSControlStateValueOn; }
 
 int main(int argc, const char **argv) { @autoreleasepool {
     [NSApplication sharedApplication];
+    controller_map_default(fakeMap, fakeModes); setenv("TOTK_UI_LANG", "en", 1); unsetenv("TOTK_SOURCE_COMMIT");
     setenv("TOTK_OUTPUT_RES", "2560x1440", 1);   /* the native size the resolution row names */
     settings_test_output_init();
     window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1280, 720) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
@@ -129,7 +155,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     runtime_input_key_synthetic(18, 1); runtime_input_key_synthetic(18, 1); tick(); runtime_input_key_synthetic(18, 0); tick();
     assert(settingsOpen && fakeSettingsCapture && settingsPanel && !settingsPanel.hidden && settingsPanel.superview == window.contentView);
     assert(NSContainsRect(window.contentView.bounds, settingsPanel.frame));
-    assert(settingsPanel.rows.count == 13);
+    assert(settingsPanel.allRows.count == 15);
 
     /* FPS graph: a switch, off at start, kept in fps-graph.txt. */
     assert(!switched(@"FPS graph"));
@@ -269,24 +295,116 @@ int main(int argc, const char **argv) { @autoreleasepool {
     assert(NSContainsRect(window.contentView.bounds, settingsPanel.frame));
     press(18); [window setContentSize:was]; press(18); assert(settingsOpen);
 
-    /* While it is open the game gets no keys (only key 1 and Esc act); after it closes, keys reach the game again. */
-    key_event(38, YES); assert(!keys[38]); key_event(38, NO);
+    /* While it is open the game gets no keys (only key 1 and Esc act); after it closes, keys reach the game again, through
+       the player's layout (E confirms: A). */
+    key_event(14, YES); assert(!held[14] && !heldOut.buttons); key_event(14, NO);
     key_event(18, YES); key_event(18, NO); assert(!settingsOpen);
-    key_event(38, YES); assert(keys[38]); key_event(38, NO); assert(!keys[38]);
+    key_event(14, YES); assert(held[14] && heldOut.buttons == 1); key_event(14, NO); assert(!held[14] && !heldOut.buttons);
     /* Keys 2-7 are no shortcuts any more. */
     int interp = mfx_requested(); float shape = runtime_aspect_ratio();
     for (unsigned k = 19; k <= 26; k++) if (k != 24 && k != 25) press(k);
     assert(mfx_requested() == interp && runtime_aspect_ratio() == shape && !settingsOpen && !taa_enabled() && !fakeMouse);
 
-    /* The footer contains only the keyboard hint, with no action buttons or empty button row. */
+    /* Pages: Display, Input and Key bindings; the page shown last opens again. */
     press(18); assert(settingsOpen);
-    assert([settingsPanel.hint.stringValue containsString:@"1 / Esc"]);
-    assert(settingsPanel.controllerTargets.count == settingsPanel.rows.count);
-    NSView *lastBand = settingsPanel.rows.lastObject.control.superview;
-    CGFloat footerGap = NSMinY(lastBand.frame) - NSMaxY(settingsPanel.hint.frame);
-    assert(footerGap >= 10 && footerGap <= 18);
+    [settingsPanel selectPage:SETTINGS_PAGE_DISPLAY];
+    assert(settingsPanel.rows.count == 8 && settingsPanel.controllerTargets.count == 8 && [settingsPanel.rows[0].title isEqualToString:@"Language"]);
+    [settingsPanel selectPage:SETTINGS_PAGE_INPUT];
+    assert(settingsPanel.rows.count == 7 && !settingsPanel.pages[SETTINGS_PAGE_INPUT].hidden && settingsPanel.pages[SETTINGS_PAGE_DISPLAY].hidden);
+    assert(settingsPanel.tabs.selectedSegment == SETTINGS_PAGE_INPUT);
+    press(18); press(18); assert(settingsOpen && settingsPanel.page == SETTINGS_PAGE_INPUT);
+
+    /* Mouse sensitivity: a slider from 1 to 100, at once; greyed out while TOTK_MOUSE_SENSITIVITY decides. */
+    NSSlider *slider = (NSSlider *)row(@"Mouse sensitivity").control;
+    assert([slider isKindOfClass:NSSlider.class] && slider.minValue == 1 && slider.maxValue == 100 && slider.intValue == 50);
+    slider.intValue = 80; [row(@"Mouse sensitivity") changed:slider];
+    assert(fakeSensitivity == 80 && [row(@"Mouse sensitivity").valueLabel.stringValue isEqualToString:@"80"]);
+    fakeSensitivity = 30; [settingsPanel.timer fire]; assert(slider.intValue == 30);
+    press(18); fakeSensitivityLocked = 1; press(18);
+    assert(!menu(@"Mouse sensitivity").enabled && [menu(@"Mouse sensitivity").titleOfSelectedItem isEqualToString:@"30"]);
+    press(18); fakeSensitivityLocked = 0; fakeSensitivity = 50; press(18); assert(settingsOpen);
+
+    /* The bottom line: the version in the bottom-left corner (not in the overlay box), no key hints, no buttons on the
+       settings pages, a small margin under the last row. */
+    [settingsPanel selectPage:SETTINGS_PAGE_DISPLAY];
+    assert([settingsPanel.versionLabel.stringValue isEqualToString:@"Ver. " TOTK_GAME_VERSION]);
+    press(18); setenv("TOTK_SOURCE_COMMIT", "abc1234", 1); press(18); assert(settingsOpen);
+    assert([settingsPanel.versionLabel.stringValue isEqualToString:@"Ver. " TOTK_GAME_VERSION " · build abc1234"]);
+    if (hudBox) { [(TOTKHudBox *)hudBox refresh]; assert(![((TOTKHudBox *)hudBox).label.stringValue containsString:@"abc1234"]); }
+    NSRect lastBand = [settingsPanel.rows.lastObject.control.superview convertRect:settingsPanel.rows.lastObject.control.superview.bounds toView:settingsPanel];
+    NSRect version = settingsPanel.versionLabel.frame;
+    assert(NSMinX(version) <= 20 && NSMinY(version) >= 6 && NSMaxY(version) <= NSMinY(lastBand) - 6 && NSMinY(lastBand) - NSMaxY(version) <= 14);
     for (NSView *view in settingsPanel.subviews)
-        if (NSMinY(view.frame) < NSMinY(lastBand.frame)) assert(![view isKindOfClass:NSButton.class]);
+        if ([view isKindOfClass:NSButton.class] && NSMaxY(view.frame) <= NSMinY(lastBand)) assert(view.hidden);
+    for (NSView *view in settingsPanel.subviews)
+        if ([view isKindOfClass:NSTextField.class] && view != settingsPanel.versionLabel) assert(NSMinY(view.frame) > NSMinY(lastBand));
+
+    /* Key bindings: the default layout; a key, a modifier, a mouse button and a controller button bound (an input in use
+       swaps places), key 1 cancels, Command keys pass, a right-click clears, the two resets. */
+    [settingsPanel selectPage:SETTINGS_PAGE_BINDINGS];
+    assert(settingsPanel.rows.count == 0 && settingsPanel.controllerTargets.count == 18 && !settingsPanel.resetButtons[0].hidden && !settingsPanel.resetButtons[1].hidden);
+    fakePadDetected = -1; fakePadType = GAMEPAD_TYPE_AUTO; [settingsPanel refreshBindings];
+    assert(titled(box(KEYMAP_X, 0), @"Space") && titled(box(KEYMAP_X, 1), @"—") && titled(box(KEYMAP_X, 2), @"Y"));   /* Xbox names: Switch X sits where Xbox Y is */
+    assert(titled(box(KEYMAP_Y, 0), @"Left click") && titled(box(KEYMAP_ZL, 1), @"Wheel click") && titled(box(KEYMAP_A, 0), @"E") && titled(box(KEYMAP_A, 1), @"Return"));
+    assert(titled(box(KEYMAP_MOVE_UP, 0), @"W") && titled(box(KEYMAP_MOVE_UP, 2), @"Left stick ↑") && !box(KEYMAP_MOVE_UP, 2).enabled);
+    fakePadType = GAMEPAD_TYPE_PLAYSTATION; [settingsPanel refreshBindings];
+    assert(titled(box(KEYMAP_A, 2), @"○") && [settingsPanel.padHeader.stringValue isEqualToString:@"Controller (PlayStation)"]);
+    fakePadType = GAMEPAD_TYPE_AUTO;
+    [settingsPanel beginCapture:box(KEYMAP_X, 0)]; assert(settingsPanel.capturing && titled(box(KEYMAP_X, 0), @"Press a key…"));
+    assert([settingsPanel captured:key_down(12, 0)] == nil);   /* Q locked on: it jumps now, lock on takes Space */
+    KeyMap keysNow; runtime_keymap_get(&keysNow);
+    assert(keysNow.slot[KEYMAP_X][0] == 12 && keysNow.slot[KEYMAP_ZL][0] == 49 && !settingsPanel.capturing && !strcmp(savedName, "keyboard.txt"));
+    assert(titled(box(KEYMAP_X, 0), @"Q") && titled(box(KEYMAP_ZL, 0), @"Space"));
+    press(18); assert(!settingsOpen); key_event(12, YES); assert(heldOut.buttons == 1u << KEYMAP_X); key_event(12, NO); press(18); assert(settingsOpen);
+    [settingsPanel beginCapture:box(KEYMAP_B, 1)];
+    NSEvent *command = key_down(12, NSEventModifierFlagCommand); assert([settingsPanel captured:command] == command && settingsPanel.capturing);
+    NSEvent *rightShift = [NSEvent keyEventWithType:NSEventTypeFlagsChanged location:NSZeroPoint modifierFlags:NSEventModifierFlagShift timestamp:0
+                                        windowNumber:window.windowNumber context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:60];
+    assert([settingsPanel captured:rightShift] == nil); runtime_keymap_get(&keysNow); assert(keysNow.slot[KEYMAP_B][1] == 60);
+    [settingsPanel beginCapture:box(KEYMAP_A, 1)]; assert([settingsPanel captured:key_down(18, 0)] == nil && !settingsPanel.capturing);   /* key 1 cancels */
+    runtime_keymap_get(&keysNow); assert(keysNow.slot[KEYMAP_A][1] == 36);
+    [settingsPanel beginCapture:box(KEYMAP_Y, 1)];
+    NSEvent *right = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:window.windowNumber
+                                         context:nil eventNumber:0 clickCount:1 pressure:1];
+    assert([settingsPanel captured:right] == nil); runtime_keymap_get(&keysNow);
+    assert(keysNow.slot[KEYMAP_Y][1] == KEYMAP_MOUSE_FIRST + 1 && keysNow.slot[KEYMAP_ZR][0] == 5);   /* the bow takes G */
+    [settingsPanel clearBinding:box(KEYMAP_Y, 1)]; runtime_keymap_get(&keysNow); assert(keysNow.slot[KEYMAP_Y][1] == KEYMAP_NONE && titled(box(KEYMAP_Y, 1), @"—"));
+    /* A controller button: through the panel's controller input, L1 now jumps and the ability takes the top button. */
+    [settingsPanel beginCapture:box(KEYMAP_X, 2)]; assert(titled(box(KEYMAP_X, 2), @"Press a button…"));
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:100 active:YES];
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1u << 6} time:100.1 active:YES];
+    assert(fakeMap[6] == 1u << KEYMAP_X && fakeMap[3] == 1u << KEYMAP_L && !settingsPanel.capturing && titled(box(KEYMAP_X, 2), @"LB") && titled(box(KEYMAP_L, 2), @"Y"));
+    [settingsPanel clearBinding:box(KEYMAP_X, 2)]; assert(!fakeMap[6] && titled(box(KEYMAP_X, 2), @"—"));
+    [settingsPanel.resetButtons[0] performClick:nil]; runtime_keymap_get(&keysNow);
+    KeyMap defaults; keymap_default(&defaults); assert(!memcmp(&keysNow, &defaults, sizeof defaults) && !strcmp(removedName, "keyboard.txt"));
+    [settingsPanel.resetButtons[1] performClick:nil];
+    uint16_t defaultMap[CONTROLLER_BUTTONS]; uint8_t defaultModes[CONTROLLER_BUTTONS]; controller_map_default(defaultMap, defaultModes);
+    assert(!memcmp(fakeMap, defaultMap, sizeof defaultMap) && titled(box(KEYMAP_X, 2), @"Y"));
+    /* With a controller: A on a row waits for the new button; R1 / L1 change the page. */
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:101 active:YES];
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1} time:101.1 active:YES];
+    assert(settingsPanel.capturing && settingsPanel.capturing.slot == 2);
+    [settingsPanel endCapture];
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:102 active:YES];
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1u << 7} time:102.1 active:YES];
+    assert(settingsPanel.page == SETTINGS_PAGE_DISPLAY);
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1} time:103 active:YES];
+    [settingsPanel controllerPad:(RuntimeGamepadState){.connected = 1, .buttons = 1u << 6} time:103.1 active:YES];
+    assert(settingsPanel.page == SETTINGS_PAGE_BINDINGS);
+    [settingsPanel selectPage:SETTINGS_PAGE_DISPLAY];
+
+    /* Language: greyed out while TOTK_UI_LANG decides; otherwise English, 中文 or 日本語, saved, and the open panel made
+       again in it. */
+    assert(!menu(@"Language").enabled && [menu(@"Language").titleOfSelectedItem isEqualToString:@"English"]);
+    press(18); unsetenv("TOTK_UI_LANG"); press(18); assert(settingsOpen && menu(@"Language").enabled && menu(@"Language").numberOfItems == 3);
+    assert(totk_ui_language() == TOTK_UI_EN);   /* English by default, whatever the Mac's language */
+    pick(@"Language", @"日本語"); tick();
+    assert(totk_ui_choice == TOTK_UI_JA && !strcmp(savedName, "ui-language.txt") && !strcmp(savedWord, "ja") && settingsOpen);
+    shows(@"解像度", @"1080p"); assert([menu(@"言語").titleOfSelectedItem isEqualToString:@"日本語"]);
+    assert([settingsPanel.tabs labelForSegment:SETTINGS_PAGE_BINDINGS] && [[settingsPanel.tabs labelForSegment:SETTINGS_PAGE_BINDINGS] isEqualToString:@"キー割り当て"]);
+    assert(!strcmp(TOTK_UI("正在启动海拉鲁", "Starting Hyrule"), "ハイラルを起動しています"));   /* the boot screen's text too */
+    pick(@"言語", @"English"); tick(); assert(totk_ui_choice == TOTK_UI_EN); shows(@"Resolution", @"1080p");
+    setenv("TOTK_UI_LANG", "en", 1);
     press(18); assert(!settingsOpen);
 
     /* Chinese. */

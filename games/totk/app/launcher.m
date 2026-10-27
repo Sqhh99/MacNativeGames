@@ -222,6 +222,10 @@ int main(int argc, char **argv) {
             if (line) { show_error([NSString stringWithFormat:@"%@, line %d: %s", controls, line, problem]); return 1; }
         }
         setenv("TOTK_CONTROLS", controls.fileSystemRepresentation, 1);
+        /* The settings panel's interface language (totk_ui_lang.h), next to controls.txt: this launcher's dialogs too. */
+        NSString *language = [NSString stringWithContentsOfFile:[controls.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"ui-language.txt"]
+                                                       encoding:NSUTF8StringEncoding error:nil];
+        if (language && totk_ui_lang_parse(language.UTF8String) >= 0) totk_ui_choice = totk_ui_lang_parse(language.UTF8String);
         /* key 3's picture mode, kept between runs (runtime/game_patches_v143.c picture_mode_save / _restore) */
         setenv("TOTK_PICTURE_MODE", env_or("TOTK_PICTURE_MODE", [data stringByAppendingPathComponent:@"picture-mode.txt"]).fileSystemRepresentation, 1);
         setenv("TOTK_PROFILE_DIR", profile.fileSystemRepresentation, 1);

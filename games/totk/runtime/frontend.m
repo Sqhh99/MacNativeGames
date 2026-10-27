@@ -23,6 +23,7 @@ static int fpsGraphEnabled;
 /* The settings panel (key 1, settings_panel.h): while it is open the game gets no keyboard or mouse input. */
 static int settingsOpen;
 static void settings_show(int open);
+static void front_language_changed(void);
 /* Mouse mode (the settings panel, runtime/gamepad.m): while it is on and the window has the keyboard, the window holds the
    pointer -- moved to the window's centre, detached from the mouse and hidden -- and sends the mouse's buttons and
    movement to gamepad.m. It lets go when the window loses the keyboard (Command-Tab, a click elsewhere), during text
@@ -126,6 +127,18 @@ static CVReturn vsync_callback(CVDisplayLinkRef link,const CVTimeStamp *now,cons
  (void)link;(void)now;(void)output;(void)flags;(void)out;(void)ctx;
  pthread_mutex_lock(&vsyncLock);for(unsigned i=0;i<vsyncCount;i++)hle_signal_system_event(vsyncEvents[i]);pthread_mutex_unlock(&vsyncLock);return kCVReturnSuccess;
 }
+/* 1 / 0: the modifier key e (a flag change) is down / up; -1: not one the layout takes (Command, Caps Lock, fn). Each side
+   has its own device bit; a flag change without them (a synthesized event) goes by the shared flag. */
+static int front_modifier_down(NSEvent *e){
+ NSEventModifierFlags f=e.modifierFlags,shared;unsigned long side,pair;
+ switch(e.keyCode){
+  case 56:shared=NSEventModifierFlagShift;side=0x2;pair=0x6;break;case 60:shared=NSEventModifierFlagShift;side=0x4;pair=0x6;break;
+  case 59:shared=NSEventModifierFlagControl;side=0x1;pair=0x2001;break;case 62:shared=NSEventModifierFlagControl;side=0x2000;pair=0x2001;break;
+  case 58:shared=NSEventModifierFlagOption;side=0x20;pair=0x60;break;case 61:shared=NSEventModifierFlagOption;side=0x40;pair=0x60;break;
+  default:return -1;}
+ if(!(f&shared))return 0;
+ return f&pair?!!(f&side):1;
+}
 @interface TOTKInputView:NSView
 @property(strong) NSTimer *cursorHideTimer;
 @property BOOL cursorAutoHideActive;
@@ -138,8 +151,9 @@ static CVReturn vsync_callback(CVDisplayLinkRef link,const CVTimeStamp *now,cons
    menu) do anything; releases still go through so nothing stays held. */
 -(void)keyDown:(NSEvent *)e{if(textEntryOpen)return;if(settingsOpen&&e.keyCode!=18){if(e.keyCode==53)settings_show(0);return;}runtime_input_key(e.keyCode,1);}
 -(void)keyUp:(NSEvent *)e{runtime_input_key(e.keyCode,0);}
--(void)flagsChanged:(NSEvent *)e{int shift=!!(e.modifierFlags&NSEventModifierFlagShift),option=!!(e.modifierFlags&NSEventModifierFlagOption);
- if(e.keyCode==56&&(!(settingsOpen||textEntryOpen)||!shift))runtime_input_key(56,shift);if(e.keyCode==58&&(!(settingsOpen||textEntryOpen)||!option))runtime_input_key(58,option);}
+/* Shift, Control and Option, left and right apart, are keys of the layout (keyboard_map.h); they come as flag changes.
+   While the settings panel or text entry is open only their releases go through. */
+-(void)flagsChanged:(NSEvent *)e{int down=front_modifier_down(e);if(down>=0&&(!(settingsOpen||textEntryOpen)||!down))runtime_input_key(e.keyCode,down);}
 /* The game has no mouse controls. In native full screen, keep the pointer out of the picture while idle, but show it again
    as soon as it moves; restore it when the window loses focus or leaves full screen. */
 -(void)hideCursorIfIdle:(NSTimer *)timer{
@@ -215,10 +229,7 @@ enum { FPS_GRAPH_SAMPLES = 61, FPS_GRAPH_WIDTH = 220, FPS_GRAPH_HEIGHT = 90 };
   for(int i=0;i<4;i++){char t[128];int hl=0;if((!full&&i!=0)||!hud_snapshot(i,t,sizeof t,&hl))continue;   // FPS, shaders, render pipelines, load
    [a appendAttributedString:[[NSAttributedString alloc] initWithString:[([NSString stringWithUTF8String:t] ?: @"") stringByAppendingString:@"\n"] attributes:@{NSFontAttributeName:mono,NSForegroundColorAttributeName:hl?yellow:green}]];}
   if(!a.length)[a appendAttributedString:[[NSAttributedString alloc] initWithString:@"FPS --\n" attributes:@{NSFontAttributeName:mono,NSForegroundColorAttributeName:green}]];
-  /* The commit the app was built from (user 2026-10-25), last and grey: TOTK_SOURCE_COMMIT from the launcher. */
-  const char *commit=getenv("TOTK_SOURCE_COMMIT");
-  if(commit&&*commit)[a appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@(TOTK_UI("版本 %s\n","build %s\n")),commit]
-   attributes:@{NSFontAttributeName:mono,NSForegroundColorAttributeName:[NSColor colorWithCalibratedWhite:0.6 alpha:1]}]];
+  /* The version and commit are in the settings panel's bottom-left corner (user 2026-10-27), not here. */
   [a deleteCharactersInRange:NSMakeRange(a.length-1,1)];   // no empty line under the last one
   BOOL changed=![a isEqualToAttributedString:self.label.attributedStringValue];
   if(changed)self.label.attributedStringValue=a;
@@ -461,18 +472,29 @@ static TOTKWindowDelegate *windowDelegate;
 int runtime_front_window_visible(void){return atomic_load(&windowVisible);}
 void runtime_front_request_close(void){dispatch_async(dispatch_get_main_queue(), ^{[window performClose:nil];});}
 /* Use the window-close path, not terminate:, so Command-Q also waits for active saves. */
+static NSMenuItem *quitItem;
+static NSString *front_quit_title(void){return @(TOTK_UI3("退出 " GAME_NAME,"Quit " GAME_NAME,GAME_NAME " を終了"));}
 static void front_install_menu(void){
  NSMenu *menu=[NSMenu new],*appMenu=[NSMenu new];
  NSMenuItem *appItem=[NSMenuItem new];appItem.submenu=appMenu;[menu addItem:appItem];
- NSMenuItem *quit=[[NSMenuItem alloc] initWithTitle:@(TOTK_UI("退出 " GAME_NAME,"Quit " GAME_NAME)) action:@selector(performClose:) keyEquivalent:@"q"];
- quit.keyEquivalentModifierMask=NSEventModifierFlagCommand;quit.target=window;
+ NSMenuItem *quit=[[NSMenuItem alloc] initWithTitle:front_quit_title() action:@selector(performClose:) keyEquivalent:@"q"];
+ quit.keyEquivalentModifierMask=NSEventModifierFlagCommand;quit.target=window;quitItem=quit;
  [appMenu addItem:quit];front_menubar_fps_add(menu);NSApp.mainMenu=menu;
+}
+/* The settings panel's language row: the host text already on screen follows (main thread). */
+static void front_language_changed(void){
+ quitItem.title=front_quit_title();
+ if(fpsMenu&&fpsMenu.numberOfItems)fpsMenu.itemArray.firstObject.title=@(TOTK_UI("实时帧率（TOTK_MENUBAR_FPS=0 可隐藏）","Live frame rate (TOTK_MENUBAR_FPS=0 hides it)"));
+ [(TOTKHudBox *)hudBox refresh];
 }
 static void *guest_main(void *callback){@autoreleasepool{((void(*)(void))callback)();}return NULL;}
 void runtime_front_run(void(*callback)(void)){
  @autoreleasepool{
   bootStartNS=runtime_now_ns();
   {const char *commit=getenv("TOTK_SOURCE_COMMIT");fprintf(stderr,"[totk] built from commit %s\n",commit&&*commit?commit:"(not recorded)");}
+  /* The settings panel's language (ui-language.txt), before the first text on screen; English without it. */
+  {char word[16]={0};if(runtime_setting_word("ui-language.txt",word,sizeof word)){int l=totk_ui_lang_parse(word);if(l>=0)totk_ui_choice=l;}
+   fprintf(stderr,"[totk] interface language: %s\n",totk_ui_lang_name(totk_ui_language()));}
 #ifdef GAME_BOTW
   if(totk_sr_start)totk_sr_start("botw",TOTK_GAME_VERSION);   /* TOTK_STATE_REPORTING=1: starting */
 #else

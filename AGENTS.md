@@ -38,6 +38,11 @@ These instructions apply to the entire repository and to all agents working in i
 - Use `Sqhh99 <sqhh99@gmail.com>` for the owner's commits.
 - Stage only files relevant to the requested change. Do not include downloaded game files, key archives, credentials, saves, or build artifacts.
 
+## Project records
+
+- Follow `agents/skills/project-records/SKILL.md`: a work log in `docs/work-logs/` after any request that changes files, a review archive in `docs/code-reviews/` after a code review, and a PR record in `docs/pull-requests/` before opening a pull request.
+- Never mark a check as passed unless it was run.
+
 ## Local game assets
 
 - Keep local inputs under `game-assets/`, excluded from Git.

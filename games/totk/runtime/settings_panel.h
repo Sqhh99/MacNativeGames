@@ -1,7 +1,14 @@
 /* The settings panel (Mac; included by frontend.m): key 1 opens and closes it (runtime/input.c), Esc and its close
-   button close it. User 2026-10-25: it replaces the shortcut keys 2-7 and their reminder box. One row per setting, a
-   pop-up menu or a switch, each applied at once:
+   button close it. User 2026-10-25: it replaces the shortcut keys 2-7 and their reminder box. User 2026-10-27: three
+   pages (Display, Input, Key bindings) chosen by the tabs at the top, or L1 / R1 on a controller; the version in the
+   bottom-left corner instead of the overlay box; no key hints at the bottom. One row per setting, a pop-up menu, a switch
+   or a slider, each applied at once:
+   Display
+     language             English / 中文 / 日本語             totk_ui_choice (totk_ui_lang.h), saved in ui-language.txt;
+                                                             the panel is made again in that language at once;
+                                                             TOTK_UI_LANG decides first (greyed out)
      overlay              all / FPS only / off               fps_overlay_set_hud_mode (gfx/nvn/fps_overlay.c)
+     FPS graph            switch                             fps-graph.txt
      frame lock           off / 30 / 40 / 60                 nvn_fps_lock_set (gfx/nvn/hle_nvn.c; user 2026-10-25 "锁帧")
                                                              frame lock and frame interpolation exclude each other: picking
                                                              one turns the other off (user 2026-10-25, not to mislead)
@@ -16,12 +23,15 @@
                                                              (runtime_front_resize_aspect; user 2026-10-25: no fitting the
                                                              window any more); TOTK_ASPECT's ratio is offered too
      edge smoothing       switch                             taa_set (gfx/nvn/totk_taa.m)
+   Input
      controller type      auto / Xbox / PlayStation / Switch runtime_gamepad_type_set (gamepad.m), saved
      DualSense bow trigger switch                            runtime_triggers_choose (gamepad_feedback.m), saved in
                                                              dualsense-triggers.txt; Breath of the Wild 1.9.0 and Tears of
                                                              the Kingdom 1.4.3 only; TOTK_DUALSENSE_TRIGGERS or an agent's
                                                              test session decide first (greyed out)
      mouse                switch                             runtime_mouse_set (gamepad.m), saved
+     mouse sensitivity    slider 1-100 (50)                  runtime_mouse_sensitivity_set (gamepad.m), saved in
+                                                             mouse-sensitivity.txt; TOTK_MOUSE_SENSITIVITY decides first
      rumble               switch                             runtime_feedback_choose (hid_feedback.c), saved in rumble.txt
      rumble strength      0.5x / 1x / 2x / 3x / 4x           runtime_rumble_gain_set (gamepad_feedback.m), rumble-gain.txt
      gyro aiming          switch                             runtime_feedback_choose, saved in gyro.txt
@@ -29,12 +39,19 @@
                                                              switches first, TOTK_RUMBLE_GAIN the strength (the row greyed
                                                              out); a device the run started without comes at the next
                                                              launch (its title says so)
-   A keyboard and controller hint below the rows explains navigation and closing. A setting this game or start cannot
-   change shows its one value, greyed out. While the panel is open the game gets no
-   keyboard, mouse or controller input (TOTKInputView, front_mouse_update and gamepad capture). The
-   controls read their values again twice a second, so they always show what is in force. */
+   Key bindings: one row per game action with two keyboard and mouse inputs (keyboard_map.h, runtime_keymap_set: in force
+   at once, saved in keyboard.txt) and the controller buttons that drive it (controller_map.h, runtime_controller_map_set:
+   controls.txt). Click a box, then press a key or a mouse button (key 1 cancels; Command keys stay the system's) or, in
+   the controller column, a controller button; with a controller, pick a row and press A, then the new button. An input
+   another action holds swaps places with this box's. Right-click clears a box. Two buttons reset the keyboard and mouse,
+   or the controller, to the default (the file removed). A capture ends after 6 seconds without input.
+   A setting this game or start cannot change shows its one value, greyed out. While the panel is open the game gets no
+   keyboard, mouse or controller input (TOTKInputView, front_mouse_update and gamepad capture). The controls read their
+   values again twice a second, so they always show what is in force. */
 #pragma once
-#include "aspect_math.h"   /* aspect_near, ASPECT_GAME */
+#include "aspect_math.h"     /* aspect_near, ASPECT_GAME */
+#include "keyboard_map.h"    /* the keyboard and mouse layout */
+#include "controller_map.h"  /* the controller layout */
 
 void dm_gfx_set_flag(const char *name, int value);
 void nvn_fps_lock_set(int fps);   /* gfx/nvn/hle_nvn.c: 0 off, 30, 40 or 60 */
@@ -61,27 +78,37 @@ static void settings_window_for(int mode) {
  fprintf(stderr,"[totk] settings: window %.0fx%.0f for the resolution\n",cw,ch);
 }
 
+enum { SETTINGS_PAGE_DISPLAY, SETTINGS_PAGE_INPUT, SETTINGS_PAGE_BINDINGS, SETTINGS_PAGES };
 static void settings_refresh_all(void);
+static void settings_rebuild(void);
 @interface TOTKSettingRow:NSObject
 @property(copy) NSString *title;
-@property(copy) NSArray<NSString *> *choices;   /* nil: an on / off switch */
+@property(copy) NSArray<NSString *> *choices;   /* nil: an on / off switch, or a slider */
 @property(copy) NSArray<NSNumber *> *values;    /* what each choice sets */
 @property(copy) int (^get)(void);
 @property(copy) void (^set)(int value);
 @property(copy) NSString *(^firstTitle)(void);   /* a first choice whose text changes (auto: the controller it sees) */
+@property int sliderMin, sliderMax;              /* a slider when sliderMax > sliderMin */
+@property NSInteger page;                        /* SETTINGS_PAGE_DISPLAY or SETTINGS_PAGE_INPUT */
 @property(strong) NSControl *control;
+@property(strong) NSTextField *valueLabel;       /* a slider's value */
+-(BOOL)slider;
 -(void)changed:(id)sender;
 -(void)refresh;
 @end
 @implementation TOTKSettingRow
+-(BOOL)slider{return self.sliderMax>self.sliderMin;}
 -(void)changed:(id)sender{
- int v=[sender isKindOfClass:NSSwitch.class]?((NSSwitch *)sender).state==NSControlStateValueOn:self.values[(NSUInteger)MAX(0,((NSPopUpButton *)sender).indexOfSelectedItem)].intValue;
+ int v=[sender isKindOfClass:NSSlider.class]?((NSSlider *)sender).intValue:[sender isKindOfClass:NSSwitch.class]?((NSSwitch *)sender).state==NSControlStateValueOn:
+  self.values[(NSUInteger)MAX(0,((NSPopUpButton *)sender).indexOfSelectedItem)].intValue;
  if(self.set)self.set(v);
+ if(self.valueLabel)self.valueLabel.stringValue=[NSString stringWithFormat:@"%d",v];
  [self.control.window makeFirstResponder:self.control.window.contentView];   /* key 1 and Esc keep reaching the window */
  settings_refresh_all();   /* a pick may change another row (frame lock / interpolation) */
 }
 -(void)refresh{
  int v=self.get?self.get():0;
+ if(self.slider){NSSlider *s=(NSSlider *)self.control;if(s.intValue!=v)s.intValue=v;self.valueLabel.stringValue=[NSString stringWithFormat:@"%d",v];return;}
  if(!self.choices){((NSSwitch *)self.control).state=v?NSControlStateValueOn:NSControlStateValueOff;return;}
  NSPopUpButton *p=(NSPopUpButton *)self.control;
  if(self.firstTitle&&p.numberOfItems){NSString *t=self.firstTitle();if(![[p itemAtIndex:0].title isEqualToString:t])[p itemAtIndex:0].title=t;}
@@ -90,7 +117,7 @@ static void settings_refresh_all(void);
 }
 @end
 
-static NSString *settings_text(const char *zh, const char *en) { return @(TOTK_UI(zh, en)); }
+static NSString *settings_text(const char *zh, const char *en, const char *ja) { return @(TOTK_UI3(zh, en, ja)); }
 static TOTKSettingRow *settings_row(NSString *title, NSArray<NSString *> *choices, NSArray<NSNumber *> *values,
                                     int (^get)(void), void (^set)(int)) {
  TOTKSettingRow *r=[TOTKSettingRow new];r.title=title;r.choices=choices;r.values=values;r.get=get;r.set=set;return r;
@@ -99,6 +126,7 @@ static TOTKSettingRow *settings_row(NSString *title, NSArray<NSString *> *choice
 static TOTKSettingRow *settings_fixed(NSString *title, NSString *value) {
  return settings_row(title,@[value],@[@0],^int{return 0;},nil);
 }
+static NSString *settings_on_off(int on) { return on?settings_text("开","On","オン"):settings_text("关","Off","オフ"); }
 
 static NSString *settings_ratio_text(float r) {
  if(fabsf(r*9-16)<0.02f)return @"16:9";
@@ -107,48 +135,70 @@ static NSString *settings_ratio_text(float r) {
  if(fabsf(r*10-16)<0.02f)return @"16:10";
  return [NSString stringWithFormat:@"%.2f:1",r];
 }
+/* The interface language: each in its own name. The panel is made again in the new language (and the menu bar follows). */
+static void settings_language_set(int language) {
+ if(language<0||language>=TOTK_UI_LANGUAGES||language==totk_ui_language())return;
+ totk_ui_choice=language;runtime_setting_save("ui-language.txt",totk_ui_lang_name(language),"interface language");
+ fprintf(stderr,"[totk] interface language: %s (settings)\n",totk_ui_lang_name(language));
+ dispatch_async(dispatch_get_main_queue(),^{front_language_changed();settings_rebuild();});
+}
+static TOTKSettingRow *settings_language_row(void) {
+ NSString *t=settings_text("语言","Language","言語");NSArray<NSString *> *names=@[@"English",@"中文",@"日本語"];
+ const char *e=getenv("TOTK_UI_LANG");
+ if(e&&*e)return settings_fixed(t,names[(NSUInteger)totk_ui_language()]);
+ return settings_row(t,names,@[@(TOTK_UI_EN),@(TOTK_UI_ZH),@(TOTK_UI_JA)],^int{return totk_ui_language();},^(int v){settings_language_set(v);});
+}
 /* Rumble (gyro 0) or gyro aiming (gyro 1): a switch, or its one value greyed out when the environment or an agent's test
    session decides; a device the game did not get at the start comes at the next launch, which the title says. */
 static TOTKSettingRow *settings_feedback_row(int gyro) {
- NSString *t=gyro?settings_text("体感瞄准","Gyro aiming"):settings_text("震动","Rumble");
- if(runtime_feedback_locked(gyro))return settings_fixed(t,runtime_feedback_present(gyro)?settings_text("开","On"):settings_text("关","Off"));
- if(!runtime_feedback_present(gyro))t=[t stringByAppendingString:settings_text("（下次启动生效）"," (from the next launch)")];
+ NSString *t=gyro?settings_text("体感瞄准","Gyro aiming","ジャイロエイム"):settings_text("震动","Rumble","振動");
+ if(runtime_feedback_locked(gyro))return settings_fixed(t,settings_on_off(runtime_feedback_present(gyro)));
+ if(!runtime_feedback_present(gyro))t=[t stringByAppendingString:settings_text("（下次启动生效）"," (from the next launch)","（次回起動から）")];
  return settings_row(t,nil,nil,^int{return runtime_feedback_choice(gyro);},^(int v){runtime_feedback_choose(gyro,v);});
 }
 /* Rumble strength in thousandths: 0.5x to 4x, and the strength in force when rumble-gain.txt holds another one. */
 static int settings_gain_now(void) { return (int)fmax(1, lroundf(runtime_rumble_gain()*1000)); }
 static TOTKSettingRow *settings_gain_row(void) {
- NSString *t=settings_text("震动强度","Rumble strength");
+ NSString *t=settings_text("震动强度","Rumble strength","振動の強さ");
  int now=settings_gain_now();
  NSString *(^text)(int)=^NSString *(int v){NSString *x=[NSString stringWithFormat:@"%g×",v/1000.0];
-  return v==1000?[x stringByAppendingString:settings_text("（默认）"," (default)")]:x;};
+  return v==1000?[x stringByAppendingString:settings_text("（默认）"," (default)","（デフォルト）")]:x;};
  if(runtime_rumble_gain_locked())return settings_fixed(t,text(now));
  NSMutableArray<NSNumber *> *values=[@[@500,@1000,@2000,@3000,@4000] mutableCopy];
  if(![values containsObject:@(now)]){[values addObject:@(now)];[values sortUsingSelector:@selector(compare:)];}
  NSMutableArray<NSString *> *choices=[NSMutableArray array];for(NSNumber *v in values)[choices addObject:text(v.intValue)];
  return settings_row(t,choices,values,^int{return settings_gain_now();},^(int v){runtime_rumble_gain_set(v/1000.0f);});
 }
+/* Mouse mode's sensitivity: a slider from 1 to 100 (50: 20 points of movement turn the camera at full speed). */
+static TOTKSettingRow *settings_sensitivity_row(void) {
+ NSString *t=settings_text("鼠标灵敏度","Mouse sensitivity","マウス感度");
+ if(runtime_mouse_sensitivity_locked())return settings_fixed(t,[NSString stringWithFormat:@"%d",runtime_mouse_sensitivity()]);
+ TOTKSettingRow *r=settings_row(t,nil,nil,^int{return runtime_mouse_sensitivity();},^(int v){runtime_mouse_sensitivity_set(v);});
+ r.sliderMin=1;r.sliderMax=100;return r;
+}
 /* Auto's text: the type it takes the connected controller for (runtime/gamepad.m). */
 static NSString *settings_pad_auto_text(void) {
  static const char *const names[GAMEPAD_TYPE_COUNT]={NULL,"Xbox","PlayStation","Switch"};
  int detected=-1;runtime_gamepad_type(&detected);
- if(detected>GAMEPAD_TYPE_AUTO&&detected<GAMEPAD_TYPE_COUNT)return [NSString stringWithFormat:@(TOTK_UI("自动（%s）","Auto (%s)")),names[detected]];
- return settings_text("自动（未接手柄）","Auto (no controller)");
+ if(detected>GAMEPAD_TYPE_AUTO&&detected<GAMEPAD_TYPE_COUNT)return [NSString stringWithFormat:@(TOTK_UI3("自动（%s）","Auto (%s)","自動（%s）")),names[detected]];
+ return settings_text("自动（未接手柄）","Auto (no controller)","自動（コントローラーなし）");
 }
 
 static NSArray<TOTKSettingRow *> *settings_rows(void) {
  NSMutableArray<TOTKSettingRow *> *rows=[NSMutableArray array];
- [rows addObject:settings_row(settings_text("性能信息","Overlay"),
-  @[settings_text("全部（FPS、着色器、读取）","All (FPS, shaders, load)"),settings_text("只显示 FPS","FPS only"),settings_text("关","Off")],
+ /* Display */
+ [rows addObject:settings_language_row()];
+ [rows addObject:settings_row(settings_text("性能信息","Overlay","パフォーマンス表示"),
+  @[settings_text("全部（FPS、着色器、读取）","All (FPS, shaders, load)","すべて（FPS、シェーダー、負荷）"),settings_text("只显示 FPS","FPS only","FPS のみ"),settings_on_off(0)],
   @[@(HUD_MODE_ALL),@(HUD_MODE_MINIMAL),@(HUD_MODE_OFF)],
   ^int{return fps_overlay_hud_mode();},^(int v){fps_overlay_set_hud_mode(v);[(TOTKHudBox *)hudBox refresh];})];
- [rows addObject:settings_row(settings_text("帧率图","FPS graph"),nil,nil,
+ [rows addObject:settings_row(settings_text("帧率图","FPS graph","FPS グラフ"),nil,nil,
   ^int{return fpsGraphEnabled;},^(int v){fpsGraphEnabled=v;runtime_setting_save("fps-graph.txt",v?"on":"off","FPS graph");[(TOTKFpsGraph *)fpsGraphBox setEnabled:v];[(TOTKHudBox *)hudBox refresh];})];
- [rows addObject:settings_row(settings_text("锁帧","Frame lock"),
-  @[settings_text("关","Off"),settings_text("30 帧","30 fps"),settings_text("40 帧","40 fps"),settings_text("60 帧","60 fps")],@[@0,@30,@40,@60],
+ [rows addObject:settings_row(settings_text("锁帧","Frame lock","フレームレート固定"),
+  @[settings_on_off(0),settings_text("30 帧","30 fps","30 fps"),settings_text("40 帧","40 fps","40 fps"),settings_text("60 帧","60 fps","60 fps")],@[@0,@30,@40,@60],
   ^int{return nvn_fps_lock();},^(int v){nvn_fps_lock_set(v);if(v)dm_gfx_set_flag("mfx_interp",MFX_OFF);})];
- [rows addObject:settings_row(settings_text("补帧（MetalFX）","Frame interpolation (MetalFX)"),
-  @[settings_text("关","Off"),@"30+30",@"40+40",@"50+50",settings_text("不限帧","Unlimited")],
+ [rows addObject:settings_row(settings_text("补帧（MetalFX）","Frame interpolation (MetalFX)","フレーム補間（MetalFX）"),
+  @[settings_on_off(0),@"30+30",@"40+40",@"50+50",settings_text("不限帧","Unlimited","上限なし")],
   @[@(MFX_OFF),@(MFX_30),@(MFX_40),@(MFX_50),@(MFX_MAX)],
   ^int{return mfx_requested();},^(int v){dm_gfx_set_flag("mfx_interp",v);if(v!=MFX_OFF)nvn_fps_lock_set(0);})];
  int modes=runtime_output_modes();
@@ -156,100 +206,386 @@ static NSArray<TOTKSettingRow *> *settings_rows(void) {
  static const int order[]={OUTPUT_MODE_720P,OUTPUT_MODE_OFF,OUTPUT_MODE_METALFX,OUTPUT_MODE_NATIVE,OUTPUT_MODE_NATIVE_METALFX};
  for(unsigned i=0;i<sizeof order/sizeof *order;i++){
   int m=order[i];if(!(modes&1<<m))continue;unsigned nw=0,nh=0;runtime_output_native(m,&nw,&nh);
-  [res addObject:m==OUTPUT_MODE_720P?@"720p":m==OUTPUT_MODE_OFF?@"1080p":m==OUTPUT_MODE_METALFX?settings_text("1080p + MetalFX 放大","1080p + MetalFX upscaling"):
-   m==OUTPUT_MODE_NATIVE_METALFX?settings_text("2K + MetalFX 放大（4K 屏）","2K + MetalFX upscaling (4K screens)"):
-   nw==2560&&nh==1440?settings_text("2K（2560×1440）","2K (2560×1440)"):
-   [NSString stringWithFormat:@(TOTK_UI("原生 %u×%u","Native %u×%u")),nw,nh]];
+  [res addObject:m==OUTPUT_MODE_720P?@"720p":m==OUTPUT_MODE_OFF?@"1080p":m==OUTPUT_MODE_METALFX?settings_text("1080p + MetalFX 放大","1080p + MetalFX upscaling","1080p + MetalFX アップスケール"):
+   m==OUTPUT_MODE_NATIVE_METALFX?settings_text("2K + MetalFX 放大（4K 屏）","2K + MetalFX upscaling (4K screens)","2K + MetalFX アップスケール（4K 画面）"):
+   nw==2560&&nh==1440?settings_text("2K（2560×1440）","2K (2560×1440)","2K（2560×1440）"):
+   [NSString stringWithFormat:@(TOTK_UI3("原生 %u×%u","Native %u×%u","ネイティブ %u×%u")),nw,nh]];
   [resModes addObject:@(m)];}
- if(res.count<2)[rows addObject:settings_fixed(settings_text("分辨率","Resolution"),@"1080p")];
- else [rows addObject:settings_row(settings_text("分辨率","Resolution"),res,resModes,
+ NSString *resolution=settings_text("分辨率","Resolution","解像度");
+ if(res.count<2)[rows addObject:settings_fixed(resolution,@"1080p")];
+ else [rows addObject:settings_row(resolution,res,resModes,
   ^int{return runtime_output_mode();},^(int v){if(runtime_output_mode_set(v))settings_window_for(v);})];
- if(!(runtime_aspect_ratio()>0))[rows addObject:settings_fixed(settings_text("画面比例","Aspect ratio"),@"16:9")];
+ NSString *aspect=settings_text("画面比例","Aspect ratio","アスペクト比");
+ if(!(runtime_aspect_ratio()>0))[rows addObject:settings_fixed(aspect,@"16:9")];
  else{NSMutableArray<NSNumber *> *ratios=[@[@(16.0/9),@(16.0/10),@(21.0/9),@(32.0/9)] mutableCopy];
   float start=runtime_aspect_start();BOOL listed=NO;   /* TOTK_ASPECT's ratio (2.39, 3440x1440 ...) as one more choice */
   for(NSNumber *r in ratios)listed|=aspect_near(start,r.doubleValue);
   if(start>0&&!listed)[ratios addObject:@(start)];
   NSMutableArray<NSString *> *choices=[NSMutableArray array];NSMutableArray<NSNumber *> *values=[NSMutableArray array];
   for(NSUInteger i=0;i<ratios.count;i++){[choices addObject:settings_ratio_text(ratios[i].floatValue)];[values addObject:@((int)i)];}
-  [rows addObject:settings_row(settings_text("画面比例","Aspect ratio"),choices,values,^int{
+  [rows addObject:settings_row(aspect,choices,values,^int{
     float now=runtime_aspect_ratio();for(NSUInteger i=0;i<ratios.count;i++)if(aspect_near(now,ratios[i].doubleValue))return (int)i;return -1;},
    ^(int v){float r=ratios[(NSUInteger)v].floatValue;if(runtime_aspect_set_ratio(r))runtime_front_resize_aspect(r);})];}
- [rows addObject:settings_row(settings_text("边缘平滑（MetalFX 时间性）","Edge smoothing (MetalFX Temporal)"),nil,nil,
+ [rows addObject:settings_row(settings_text("边缘平滑（MetalFX 时间性）","Edge smoothing (MetalFX Temporal)","エッジスムージング（MetalFX Temporal）"),nil,nil,
   ^int{return taa_enabled();},^(int v){taa_set(v);})];
- TOTKSettingRow *pad=settings_row(settings_text("手柄类型","Controller type"),@[settings_pad_auto_text(),@"Xbox",@"PlayStation",@"Switch"],
+ NSUInteger display=rows.count;
+ /* Input */
+ TOTKSettingRow *pad=settings_row(settings_text("手柄类型","Controller type","コントローラーの種類"),@[settings_pad_auto_text(),@"Xbox",@"PlayStation",@"Switch"],
   @[@(GAMEPAD_TYPE_AUTO),@(GAMEPAD_TYPE_XBOX),@(GAMEPAD_TYPE_PLAYSTATION),@(GAMEPAD_TYPE_SWITCH)],
   ^int{return runtime_gamepad_type(NULL);},^(int v){runtime_gamepad_type_set(v);});
  pad.firstTitle=^NSString *{return settings_pad_auto_text();};[rows addObject:pad];
- NSString *bow=settings_text("DualSense 拉弓扳机（R2）","DualSense bow trigger (R2)");
- if(!runtime_triggers_available())[rows addObject:settings_fixed(bow,settings_text("这个版本没有","Not in this version"))];
- else if(runtime_triggers_locked())[rows addObject:settings_fixed(bow,runtime_triggers_choice()?settings_text("开","On"):settings_text("关","Off"))];
+ NSString *bow=settings_text("DualSense 拉弓扳机（R2）","DualSense bow trigger (R2)","DualSense 弓トリガー（R2）");
+ if(!runtime_triggers_available())[rows addObject:settings_fixed(bow,settings_text("这个版本没有","Not in this version","このバージョンにはありません"))];
+ else if(runtime_triggers_locked())[rows addObject:settings_fixed(bow,settings_on_off(runtime_triggers_choice()))];
  else [rows addObject:settings_row(bow,nil,nil,^int{return runtime_triggers_choice();},^(int v){runtime_triggers_choose(v);})];
- [rows addObject:settings_row(settings_text("鼠标操作（视角、按键）","Mouse (camera, buttons)"),nil,nil,
+ [rows addObject:settings_row(settings_text("鼠标操作（视角、按键）","Mouse (camera, buttons)","マウス操作（カメラ、ボタン）"),nil,nil,
   ^int{return runtime_mouse_enabled();},^(int v){runtime_mouse_set(v);})];
+ [rows addObject:settings_sensitivity_row()];
  [rows addObject:settings_feedback_row(0)];
  [rows addObject:settings_gain_row()];
  [rows addObject:settings_feedback_row(1)];
+ for(NSUInteger i=0;i<rows.count;i++)rows[i].page=i<display?SETTINGS_PAGE_DISPLAY:SETTINGS_PAGE_INPUT;
  return rows;
 }
 
+/* ---- Key bindings ---- */
+/* The game actions in the order the page lists them; action -1 starts a section. */
+typedef struct { int action; const char *zh, *en, *ja, *tag; } SettingsAction;
+static const SettingsAction *settings_actions(int *count) {
+ static const SettingsAction list[]={
+  {-1,"移动","Movement","移動",NULL},
+  {KEYMAP_MOVE_UP,"向前","Forward","前進",NULL},{KEYMAP_MOVE_DOWN,"向后","Back","後退",NULL},
+  {KEYMAP_MOVE_LEFT,"向左","Left","左",NULL},{KEYMAP_MOVE_RIGHT,"向右","Right","右",NULL},
+  {-1,"视角","Camera","カメラ",NULL},
+  {KEYMAP_CAMERA_UP,"视角向上","Camera up","カメラ 上",NULL},{KEYMAP_CAMERA_DOWN,"视角向下","Camera down","カメラ 下",NULL},
+  {KEYMAP_CAMERA_LEFT,"视角向左","Camera left","カメラ 左",NULL},{KEYMAP_CAMERA_RIGHT,"视角向右","Camera right","カメラ 右",NULL},
+  {-1,"动作","Actions","アクション",NULL},
+  {KEYMAP_A,"确认 / 互动","Confirm / Interact","決定 / 調べる","A"},
+  {KEYMAP_B,"取消 / 冲刺","Cancel / Sprint","キャンセル / ダッシュ","B"},
+  {KEYMAP_X,"跳跃","Jump","ジャンプ","X"},
+  {KEYMAP_Y,"攻击","Attack","攻撃","Y"},
+  {KEYMAP_ZR,"弓（按住拉弓）","Bow (hold to draw)","弓（長押しで構える）","ZR"},
+  {KEYMAP_ZL,"锁定 / 举盾","Lock on / Shield","注目 / 盾","ZL"},
+#ifdef GAME_BOTW
+  {KEYMAP_L,"希卡石能力","Rune","ルーン","L"},
+#else
+  {KEYMAP_L,"能力","Ability","能力","L"},
+#endif
+  {KEYMAP_R,"投掷","Throw","投げる","R"},
+  {KEYMAP_LSTICK,"蹲下","Crouch","しゃがむ","L3"},
+  {KEYMAP_RSTICK,"主视角","Look (first person)","主観視点","R3"},
+  {-1,"菜单","Menus","メニュー",NULL},
+  {KEYMAP_PLUS,"菜单","Menu","メニュー","+"},
+  {KEYMAP_MINUS,"地图","Map","マップ","−"},
+  {-1,"十字键","D-pad","十字ボタン",NULL},
+  {KEYMAP_DUP,"十字键 上","D-pad up","十字ボタン 上","↑"},{KEYMAP_DDOWN,"十字键 下","D-pad down","十字ボタン 下","↓"},
+  {KEYMAP_DLEFT,"十字键 左","D-pad left","十字ボタン 左","←"},{KEYMAP_DRIGHT,"十字键 右","D-pad right","十字ボタン 右","→"}};
+ *count=(int)(sizeof list/sizeof *list);
+ return list;
+}
+static NSString *settings_input_text(int input) {
+ if(input==KEYMAP_NONE)return @"—";
+ switch(input-KEYMAP_MOUSE_FIRST){
+  case 0:return settings_text("鼠标左键","Left click","左クリック");
+  case 1:return settings_text("鼠标右键","Right click","右クリック");
+  case 2:return settings_text("滚轮按下","Wheel click","ホイールクリック");
+  case 3:return settings_text("鼠标侧键 4","Mouse 4","マウスボタン 4");
+  case 4:return settings_text("鼠标侧键 5","Mouse 5","マウスボタン 5");
+ }
+ const char *label=keymap_input_label(input);
+ return label?@(label):[NSString stringWithFormat:@"#%d",input];
+}
+/* The controller family the button names follow: the type picked, else the one auto sees, else Xbox. */
+static int settings_pad_family(void) { int detected=-1,type=runtime_gamepad_type(&detected);if(!type)type=detected;return type>GAMEPAD_TYPE_AUTO?type:GAMEPAD_TYPE_XBOX; }
+static NSString *settings_pad_button(int physical, int family) {
+ static const char *const xbox[]={"A","B","X","Y","LS","RS","LB","RB","LT","RT","Menu","View"};
+ static const char *const playstation[]={"×","○","□","△","L3","R3","L1","R1","L2","R2","Options","Create"};
+ static const char *const nintendo[]={"B","A","Y","X","L3","R3","L","R","ZL","ZR","+","−"};   /* by label: east is A */
+ static const char *const arrows[]={"←","↑","→","↓"};
+ if(physical<12)return @((family==GAMEPAD_TYPE_PLAYSTATION?playstation:family==GAMEPAD_TYPE_SWITCH?nintendo:xbox)[physical]);
+ if(physical<16)return [NSString stringWithFormat:@"%@ %@",settings_text("十字键","D-pad","十字ボタン"),@(arrows[physical-12])];
+ if(physical==16)return settings_text("触控板","Touchpad","タッチパッド");
+ return settings_input_text(KEYMAP_MOUSE_FIRST+physical-CONTROLLER_MOUSE_FIRST);   /* a mouse line in controls.txt */
+}
+/* What the controller column shows for an action: its buttons, or the stick a direction belongs to. */
+static NSString *settings_pad_text(int action, const uint16_t *map, int family) {
+ if(action>=KEYMAP_MOVE_UP){static const char *const arrows[]={"↑","↓","←","→"};int camera=action>=KEYMAP_CAMERA_UP;
+  return [NSString stringWithFormat:@"%@ %@",camera?settings_text("右摇杆","Right stick","右スティック"):settings_text("左摇杆","Left stick","左スティック"),@(arrows[(action-KEYMAP_MOVE_UP)%4])];}
+ NSMutableArray<NSString *> *names=[NSMutableArray array];
+ for(int p=0;p<CONTROLLER_BUTTONS;p++)if(controller_map_target(map[p])==action)[names addObject:settings_pad_button(p,family)];
+ return names.count?[names componentsJoinedByString:@" / "]:@"—";
+}
+
+@class TOTKSettingsPanel;
+/* One box of the key bindings: slot 0 and 1 the keyboard and mouse inputs, 2 the controller. A right-click clears it. */
+@interface TOTKBindingButton:NSButton
+@property int gameAction, slot;   /* keyboard_map.h KEYMAP_*; 0-1 keyboard and mouse, 2 controller */
+@property(weak) TOTKSettingsPanel *panel;
+@end
+@interface TOTKFlippedView:NSView
+@end
+@implementation TOTKFlippedView
+-(BOOL)isFlipped{return YES;}
+@end
+
 @interface TOTKSettingsPanel:NSView
-@property(strong) NSArray<TOTKSettingRow *> *rows;
-@property(strong) NSMutableArray<NSView *> *controllerTargets;
+@property(strong) NSArray<TOTKSettingRow *> *allRows;   /* every page's rows */
+@property(strong) NSArray<TOTKSettingRow *> *rows;      /* the page shown (none on the key bindings page) */
+@property(strong) NSMutableArray<NSView *> *controllerTargets;   /* what a controller moves through on the page shown */
+@property NSInteger page;
 @property NSInteger controllerIndex;
 @property BOOL controllerArmed;
 @property uint64_t previousButtons;
 @property int previousDirection;
 @property double repeatAt;
--(void)controllerPad:(RuntimeGamepadState)pad time:(double)now active:(BOOL)active;
--(void)controllerHighlight;
--(void)controllerHint;
 @property(strong) NSTimer *timer;
 @property NSPoint grab;   /* where in the panel the drag started */
-@property(strong) NSTextField *hint;   /* the bottom keyboard hint */
+@property(strong) NSSegmentedControl *tabs;
+@property(strong) NSArray<NSView *> *pages;
+@property(strong) NSTextField *versionLabel;   /* the bottom-left corner */
+@property(strong) NSArray<NSButton *> *resetButtons;   /* the key bindings page: keyboard and mouse, controller */
+@property(strong) NSMutableArray<TOTKBindingButton *> *bindingButtons;
+@property(strong) NSMutableArray<NSView *> *bindingTargets;   /* rows with controller buttons, then the reset buttons */
+@property(strong) NSTextField *padHeader;
+@property(strong) NSScrollView *bindingsScroll;
+@property(strong) TOTKBindingButton *capturing;   /* the box waiting for an input */
+@property double captureUntil;
+@property(strong) id captureMonitor;
+-(void)selectPage:(NSInteger)page;
+-(void)controllerPad:(RuntimeGamepadState)pad time:(double)now active:(BOOL)active;
+-(void)controllerHighlight;
 -(void)refresh;
+-(void)refreshBindings;
+-(void)beginCapture:(TOTKBindingButton *)box;
+-(void)endCapture;
+-(void)clearBinding:(TOTKBindingButton *)box;
 @end
+
+@implementation TOTKBindingButton
+-(void)rightMouseDown:(NSEvent *)e{(void)e;if(self.enabled)[self.panel clearBinding:self];}
+@end
+
 /* Where the player dragged the panel (user 2026-10-25: it can be moved), as the fraction of the free room left and below
-   it, so a new opening and a resized window keep the spot; -1 = centred. */
+   it, so a new opening and a resized window keep the spot; -1 = centred. The page shown last opens again. */
 static NSPoint g_settings_at = {-1, -1};
+static NSInteger g_settings_page = SETTINGS_PAGE_DISPLAY;
+static NSString *settings_version_text(void) {
+ const char *commit=getenv("TOTK_SOURCE_COMMIT");   /* the commit the app was built from (build_app.py, the launcher) */
+ if(commit&&*commit)return [NSString stringWithFormat:@(TOTK_UI3("版本 %s · 构建 %s","Ver. %s · build %s","Ver. %s · ビルド %s")),TOTK_GAME_VERSION,commit];
+ return [NSString stringWithFormat:@(TOTK_UI3("版本 %s","Ver. %s","Ver. %s")),TOTK_GAME_VERSION];
+}
 @implementation TOTKSettingsPanel
-enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 54, SETTINGS_BOTTOM = 50, SETTINGS_POP_W = 260 };
+enum { SETTINGS_W = 600, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 90, SETTINGS_BOTTOM = 34, SETTINGS_POP_W = 260,
+       SETTINGS_CELL_W = 118, SETTINGS_CELL_GAP = 6, SETTINGS_BIND_ROW_H = 28, SETTINGS_SECTION_H = 24 };
 -(instancetype)init{
  NSArray<TOTKSettingRow *> *rows=settings_rows();
+ NSUInteger perPage[2]={0,0};for(TOTKSettingRow *r in rows)perPage[r.page]++;
  /* The rows close up (down to 24 pt, 2 pt apart: a 26 pt menu then meets the next one's edge) when the panel would not fit the window (21:9 or 32:9 on a laptop
-    screen), so its title, close button and first rows stay in view. */
- CGFloat n=rows.count,rowH=SETTINGS_ROW_H,gap=SETTINGS_GAP,room=window?window.contentView.bounds.size.height-8:CGFLOAT_MAX;
+    screen), so its title, close button, tabs and first rows stay in view. */
+ CGFloat n=MAX(perPage[0],perPage[1]),rowH=SETTINGS_ROW_H,gap=SETTINGS_GAP,room=window?window.contentView.bounds.size.height-8:CGFLOAT_MAX;
  if(n&&SETTINGS_TOP+n*(rowH+gap)-gap+SETTINGS_BOTTOM>room){gap=2;rowH=fmax(24,floor((room-SETTINGS_TOP-SETTINGS_BOTTOM+gap)/n-gap));}
- CGFloat h=SETTINGS_TOP+n*(rowH+gap)-gap+SETTINGS_BOTTOM;
+ CGFloat body=n*(rowH+gap)-gap,h=SETTINGS_TOP+body+SETTINGS_BOTTOM;
  if(!(self=[super initWithFrame:NSMakeRect(0,0,SETTINGS_W,h)]))return nil;
- self.rows=rows;self.controllerTargets=[NSMutableArray array];self.controllerIndex=0;self.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+ self.allRows=rows;self.controllerTargets=[NSMutableArray array];self.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
  self.wantsLayer=YES;self.layer.backgroundColor=[NSColor colorWithCalibratedRed:0.10 green:0.16 blue:0.20 alpha:0.9].CGColor;
  self.layer.cornerRadius=12;self.layer.borderWidth=1;self.layer.borderColor=[NSColor colorWithCalibratedWhite:1 alpha:0.12].CGColor;
  self.autoresizingMask=NSViewMinXMargin|NSViewMaxXMargin|NSViewMinYMargin|NSViewMaxYMargin;
- NSTextField *title=[NSTextField labelWithString:settings_text("设置","Settings")];title.font=[NSFont systemFontOfSize:17 weight:NSFontWeightSemibold];
+ NSTextField *title=[NSTextField labelWithString:settings_text("设置","Settings","設定")];title.font=[NSFont systemFontOfSize:17 weight:NSFontWeightSemibold];
  title.textColor=NSColor.whiteColor;title.frame=NSMakeRect(18,h-38,300,24);[self addSubview:title];
  NSButton *close=[NSButton buttonWithTitle:@"✕" target:self action:@selector(close:)];close.bordered=NO;close.refusesFirstResponder=YES;
  close.font=[NSFont systemFontOfSize:15 weight:NSFontWeightBold];close.contentTintColor=NSColor.whiteColor;close.frame=NSMakeRect(SETTINGS_W-40,h-40,28,28);[self addSubview:close];
- for(NSUInteger i=0;i<rows.count;i++){
-  TOTKSettingRow *r=rows[i];CGFloat y=h-SETTINGS_TOP-(i+1)*rowH-i*gap,rw=SETTINGS_W-28;
-  NSView *band=[[NSView alloc] initWithFrame:NSMakeRect(14,y,rw,rowH)];band.wantsLayer=YES;
-  band.layer.backgroundColor=[NSColor colorWithCalibratedWhite:0 alpha:0.28].CGColor;band.layer.cornerRadius=6;[self addSubview:band];
-  NSTextField *label=[NSTextField labelWithString:r.title];label.font=[NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
-  label.textColor=[NSColor colorWithCalibratedWhite:0.92 alpha:1];label.frame=NSMakeRect(12,floor((rowH-18)/2),rw-SETTINGS_POP_W-24,18);[band addSubview:label];
-  if(!r.choices){NSSwitch *s=[NSSwitch new];[s sizeToFit];s.frame=NSMakeRect(rw-12-s.frame.size.width,(rowH-s.frame.size.height)/2,s.frame.size.width,s.frame.size.height);r.control=s;}
-  else{NSPopUpButton *p=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(rw-SETTINGS_POP_W-8,floor((rowH-26)/2),SETTINGS_POP_W,26) pullsDown:NO];[p addItemsWithTitles:r.choices];
-   p.enabled=r.set!=nil;r.control=p;}
-  r.control.refusesFirstResponder=YES;r.control.target=r;r.control.action=@selector(changed:);[band addSubview:r.control];[self.controllerTargets addObject:band];
+ NSSegmentedControl *tabs=[NSSegmentedControl segmentedControlWithLabels:@[settings_text("画面","Display","画面"),settings_text("输入","Input","入力"),settings_text("按键设置","Key bindings","キー割り当て")]
+  trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(tabChanged:)];
+ tabs.segmentDistribution=NSSegmentDistributionFillEqually;tabs.refusesFirstResponder=YES;tabs.frame=NSMakeRect(14,h-80,SETTINGS_W-28,26);[self addSubview:tabs];self.tabs=tabs;
+ NSMutableArray<NSView *> *pages=[NSMutableArray array];
+ for(NSInteger p=0;p<2;p++){
+  NSView *page=[[NSView alloc] initWithFrame:NSMakeRect(0,SETTINGS_BOTTOM,SETTINGS_W,body)];NSUInteger k=0;
+  for(TOTKSettingRow *r in rows){
+   if(r.page!=p)continue;
+   CGFloat y=body-(k+1)*rowH-k*gap,rw=SETTINGS_W-28;k++;
+   NSView *band=[[NSView alloc] initWithFrame:NSMakeRect(14,y,rw,rowH)];band.wantsLayer=YES;
+   band.layer.backgroundColor=[NSColor colorWithCalibratedWhite:0 alpha:0.28].CGColor;band.layer.cornerRadius=6;[page addSubview:band];
+   NSTextField *label=[NSTextField labelWithString:r.title];label.font=[NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
+   label.textColor=[NSColor colorWithCalibratedWhite:0.92 alpha:1];label.frame=NSMakeRect(12,floor((rowH-18)/2),rw-SETTINGS_POP_W-24,18);[band addSubview:label];
+   if(r.slider){
+    NSSlider *s=[NSSlider sliderWithValue:r.get?r.get():r.sliderMin minValue:r.sliderMin maxValue:r.sliderMax target:nil action:nil];
+    s.continuous=YES;s.frame=NSMakeRect(rw-SETTINGS_POP_W-8,floor((rowH-20)/2),SETTINGS_POP_W-44,20);r.control=s;
+    NSTextField *value=[NSTextField labelWithString:@""];value.font=[NSFont monospacedDigitSystemFontOfSize:13 weight:NSFontWeightMedium];
+    value.textColor=label.textColor;value.alignment=NSTextAlignmentRight;value.frame=NSMakeRect(rw-46,floor((rowH-18)/2),34,18);[band addSubview:value];r.valueLabel=value;
+   }else if(!r.choices){NSSwitch *s=[NSSwitch new];[s sizeToFit];s.frame=NSMakeRect(rw-12-s.frame.size.width,(rowH-s.frame.size.height)/2,s.frame.size.width,s.frame.size.height);r.control=s;}
+   else{NSPopUpButton *pop=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(rw-SETTINGS_POP_W-8,floor((rowH-26)/2),SETTINGS_POP_W,26) pullsDown:NO];[pop addItemsWithTitles:r.choices];
+    pop.enabled=r.set!=nil;r.control=pop;}
+   r.control.refusesFirstResponder=YES;r.control.target=r;r.control.action=@selector(changed:);[band addSubview:r.control];
+  }
+  [self addSubview:page];[pages addObject:page];
  }
- NSTextField *hint=[NSTextField labelWithString:settings_text("按 1 或 Esc 关闭 · 打开时键盘和鼠标不会传给游戏","1 or Esc closes it · keyboard and mouse do not reach the game while it is open")];
- hint.font=[NSFont systemFontOfSize:11];hint.textColor=[NSColor colorWithCalibratedWhite:0.7 alpha:1];hint.alignment=NSTextAlignmentCenter;
- hint.lineBreakMode=NSLineBreakByTruncatingMiddle;hint.frame=NSMakeRect(10,5,SETTINGS_W-20,32);hint.maximumNumberOfLines=2;[self addSubview:hint];self.hint=hint;
- [self refresh];[self controllerHint];[self controllerHighlight];
- __weak TOTKSettingsPanel *weak=self;self.timer=[NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *t){(void)t;if(!weak.hidden)[weak refresh];}];
+ NSView *bindings=[self bindingsPageWithFrame:NSMakeRect(0,SETTINGS_BOTTOM,SETTINGS_W,body)];[self addSubview:bindings];[pages addObject:bindings];
+ self.pages=pages;
+ /* The bottom line: the version on the left (user 2026-10-27: moved here from the overlay); the reset buttons on the right
+    of the key bindings page. */
+ NSTextField *version=[NSTextField labelWithString:settings_version_text()];version.font=[NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
+ version.textColor=[NSColor colorWithCalibratedWhite:0.6 alpha:1];version.lineBreakMode=NSLineBreakByTruncatingTail;version.frame=NSMakeRect(18,9,230,16);[self addSubview:version];self.versionLabel=version;
+ NSButton *resetPad=[NSButton buttonWithTitle:settings_text("恢复默认手柄按键","Reset controller","コントローラーを初期化") target:self action:@selector(resetController:)];
+ NSButton *resetKeys=[NSButton buttonWithTitle:settings_text("恢复默认键鼠按键","Reset keyboard & mouse","キーボードとマウスを初期化") target:self action:@selector(resetKeyboard:)];
+ CGFloat right=SETTINGS_W-14;
+ for(NSButton *b in @[resetPad,resetKeys]){b.controlSize=NSControlSizeSmall;b.font=[NSFont systemFontOfSize:11];b.refusesFirstResponder=YES;[b sizeToFit];
+  b.frame=NSMakeRect(right-b.frame.size.width,5,b.frame.size.width,24);right-=b.frame.size.width+6;b.wantsLayer=YES;[self addSubview:b];}
+ self.resetButtons=@[resetKeys,resetPad];[self.bindingTargets addObjectsFromArray:self.resetButtons];
+ [self selectPage:g_settings_page];[self refresh];
+ __weak TOTKSettingsPanel *weak=self;self.timer=[NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *t){(void)t;
+  TOTKSettingsPanel *panel=weak;if(!panel||panel.hidden)return;
+  if(panel.capturing&&runtime_now_ns()/1e9>panel.captureUntil)[panel endCapture];
+  [panel refresh];}];
  return self;
 }
--(void)refresh{for(TOTKSettingRow *r in self.rows)[r refresh];}
+/* The key bindings page: a line of help, the column titles, and the actions in a scrolling list. */
+-(NSView *)bindingsPageWithFrame:(NSRect)frame{
+ NSView *page=[[NSView alloc] initWithFrame:frame];CGFloat w=frame.size.width,h=frame.size.height,bw=w-28;
+ CGFloat cx2=bw-6-SETTINGS_CELL_W,cx1=cx2-SETTINGS_CELL_GAP-SETTINGS_CELL_W,cx0=cx1-SETTINGS_CELL_GAP-SETTINGS_CELL_W;
+ NSColor *dim=[NSColor colorWithCalibratedWhite:0.7 alpha:1];
+ NSTextField *help=[NSTextField wrappingLabelWithString:settings_text(
+  "点一个格子，再按键盘按键、鼠标按键或手柄按钮（按 1 取消）；右键点格子清除。已被占用的按键会互换。手柄：选中一行按 A，再按新按钮。",
+  "Click a box, then press a key, a mouse button or a controller button (1 cancels); right-click clears it. An input in use swaps places. With a controller: pick a row, press A, then the new button.",
+  "枠をクリックしてから、キー・マウスボタン・コントローラーのボタンを押します（1 で取り消し）。右クリックで解除。使用中の入力は入れ替わります。コントローラーでは行を選んで A、次に新しいボタン。")];
+ help.font=[NSFont systemFontOfSize:11];help.textColor=dim;help.frame=NSMakeRect(18,h-30,w-36,30);[page addSubview:help];
+ NSString *titles[4]={settings_text("操作","Action","操作"),settings_text("按键 1","Key 1","キー 1"),settings_text("按键 2","Key 2","キー 2"),@""};
+ CGFloat xs[4]={24,14+cx0,14+cx1,14+cx2},ws[4]={cx0-16,SETTINGS_CELL_W,SETTINGS_CELL_W,SETTINGS_CELL_W};
+ for(int i=0;i<4;i++){NSTextField *t=[NSTextField labelWithString:titles[i]];t.font=[NSFont systemFontOfSize:11 weight:NSFontWeightSemibold];t.textColor=dim;
+  t.alignment=i?NSTextAlignmentCenter:NSTextAlignmentLeft;t.lineBreakMode=NSLineBreakByTruncatingTail;t.frame=NSMakeRect(xs[i],h-50,ws[i],16);[page addSubview:t];if(i==3)self.padHeader=t;}
+ NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,w,fmax(0,h-54))];
+ scroll.hasVerticalScroller=YES;scroll.autohidesScrollers=YES;scroll.drawsBackground=NO;scroll.borderType=NSNoBorder;
+ TOTKFlippedView *list=[[TOTKFlippedView alloc] initWithFrame:NSMakeRect(0,0,w,0)];
+ self.bindingButtons=[NSMutableArray array];self.bindingTargets=[NSMutableArray array];
+ int count;const SettingsAction *actions=settings_actions(&count);CGFloat y=0;
+ for(int i=0;i<count;i++){
+  const SettingsAction *a=&actions[i];
+  if(a->action<0){NSTextField *t=[NSTextField labelWithString:@(TOTK_UI3(a->zh,a->en,a->ja))];t.font=[NSFont systemFontOfSize:12 weight:NSFontWeightSemibold];
+   t.textColor=[NSColor colorWithCalibratedRed:0.7 green:0.95 blue:0.8 alpha:1];t.frame=NSMakeRect(20,y+5,bw,16);[list addSubview:t];y+=SETTINGS_SECTION_H;continue;}
+  NSView *band=[[NSView alloc] initWithFrame:NSMakeRect(14,y,bw,SETTINGS_BIND_ROW_H-2)];band.wantsLayer=YES;
+  band.layer.backgroundColor=[NSColor colorWithCalibratedWhite:0 alpha:0.28].CGColor;band.layer.cornerRadius=6;[list addSubview:band];
+  NSMutableAttributedString *name=[[NSMutableAttributedString alloc] initWithString:@(TOTK_UI3(a->zh,a->en,a->ja))
+   attributes:@{NSFontAttributeName:[NSFont systemFontOfSize:12.5 weight:NSFontWeightMedium],NSForegroundColorAttributeName:[NSColor colorWithCalibratedWhite:0.92 alpha:1]}];
+  if(a->tag)[name appendAttributedString:[[NSAttributedString alloc] initWithString:[@"  " stringByAppendingString:@(a->tag)]
+   attributes:@{NSFontAttributeName:[NSFont systemFontOfSize:11 weight:NSFontWeightRegular],NSForegroundColorAttributeName:[NSColor colorWithCalibratedWhite:0.6 alpha:1]}]];
+  NSTextField *label=[NSTextField labelWithAttributedString:name];label.lineBreakMode=NSLineBreakByTruncatingTail;
+  label.frame=NSMakeRect(10,floor((SETTINGS_BIND_ROW_H-2-17)/2),cx0-16,17);[band addSubview:label];
+  CGFloat cx[3]={cx0,cx1,cx2};
+  for(int slot=0;slot<3;slot++){
+   TOTKBindingButton *box=[TOTKBindingButton buttonWithTitle:@"" target:self action:@selector(boxClicked:)];
+   box.bordered=NO;box.wantsLayer=YES;box.layer.cornerRadius=5;box.refusesFirstResponder=YES;
+   box.frame=NSMakeRect(cx[slot],3,SETTINGS_CELL_W,SETTINGS_BIND_ROW_H-8);
+   box.panel=self;box.gameAction=a->action;box.slot=slot;box.enabled=slot<2||a->action<KEYMAP_SWITCH_BUTTONS;
+   [band addSubview:box];[self.bindingButtons addObject:box];
+  }
+  if(a->action<KEYMAP_SWITCH_BUTTONS)[self.bindingTargets addObject:band];
+  y+=SETTINGS_BIND_ROW_H;
+ }
+ list.frame=NSMakeRect(0,0,w,y+4);scroll.documentView=list;[page addSubview:scroll];self.bindingsScroll=scroll;
+ return page;
+}
+-(void)tabChanged:(NSSegmentedControl *)tabs{[self selectPage:tabs.selectedSegment];}
+-(void)selectPage:(NSInteger)page{
+ [self endCapture];
+ page=page<0?0:page>=SETTINGS_PAGES?SETTINGS_PAGES-1:page;self.page=page;g_settings_page=page;self.tabs.selectedSegment=page;
+ for(NSInteger i=0;i<(NSInteger)self.pages.count;i++)self.pages[(NSUInteger)i].hidden=i!=page;
+ for(NSButton *b in self.resetButtons)b.hidden=page!=SETTINGS_PAGE_BINDINGS;
+ NSMutableArray<TOTKSettingRow *> *rows=[NSMutableArray array];[self.controllerTargets removeAllObjects];
+ if(page==SETTINGS_PAGE_BINDINGS)[self.controllerTargets addObjectsFromArray:self.bindingTargets];
+ else for(TOTKSettingRow *r in self.allRows)if(r.page==page){[rows addObject:r];[self.controllerTargets addObject:r.control.superview];}
+ self.rows=rows;self.controllerIndex=0;
+ [self controllerHighlight];[self refreshBindings];
+ [self.bindingsScroll.documentView scrollPoint:NSZeroPoint];   /* the list from its top (moving with a controller scrolls) */
+ [self.window makeFirstResponder:self.window.contentView];   /* key 1 and Esc keep reaching the window */
+}
+-(void)refresh{for(TOTKSettingRow *r in self.allRows)[r refresh];[self refreshBindings];}
+-(void)refreshBindings{
+ if(self.page!=SETTINGS_PAGE_BINDINGS)return;
+ KeyMap keys;runtime_keymap_get(&keys);uint16_t map[CONTROLLER_BUTTONS];uint8_t modes[CONTROLLER_BUTTONS];runtime_controller_map_get(map,modes);
+ int family=settings_pad_family();static const char *const families[GAMEPAD_TYPE_COUNT]={"","Xbox","PlayStation","Switch"};
+ NSString *header=[NSString stringWithFormat:@(TOTK_UI3("手柄（%s）","Controller (%s)","コントローラー（%s）")),families[family]];
+ if(![self.padHeader.stringValue isEqualToString:header])self.padHeader.stringValue=header;
+ NSMutableParagraphStyle *centered=[NSMutableParagraphStyle new];centered.alignment=NSTextAlignmentCenter;centered.lineBreakMode=NSLineBreakByTruncatingTail;
+ for(TOTKBindingButton *box in self.bindingButtons){
+  BOOL waiting=box==self.capturing;int action=box.gameAction;
+  NSString *text=waiting?(box.slot==2?settings_text("请按手柄按钮…","Press a button…","ボタンを押す…"):settings_text("请按键…","Press a key…","キーを押す…")):
+   box.slot<2?settings_input_text(keys.slot[action][box.slot]):settings_pad_text(action,map,family);
+  NSColor *color=waiting?NSColor.blackColor:box.enabled?[NSColor colorWithCalibratedWhite:0.95 alpha:1]:[NSColor colorWithCalibratedWhite:0.55 alpha:1];
+  NSAttributedString *title=[[NSAttributedString alloc] initWithString:text attributes:@{NSFontAttributeName:[NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium],
+   NSForegroundColorAttributeName:color,NSParagraphStyleAttributeName:centered}];
+  if(![box.attributedTitle isEqualToAttributedString:title])box.attributedTitle=title;
+  box.layer.backgroundColor=(waiting?[NSColor colorWithCalibratedRed:0.7 green:0.95 blue:0.8 alpha:1]:box.enabled?[NSColor colorWithCalibratedWhite:1 alpha:0.10]:[NSColor clearColor]).CGColor;
+  box.toolTip=box.enabled?settings_text("点击后按新的输入；右键清除","Click, then press the new input; right-click clears","クリックして新しい入力を押す。右クリックで解除"):nil;
+ }
+}
+-(void)boxClicked:(TOTKBindingButton *)box{[self beginCapture:box];}
+-(void)beginCapture:(TOTKBindingButton *)box{
+ [self endCapture];if(!box.enabled)return;
+ self.capturing=box;self.captureUntil=runtime_now_ns()/1e9+6;
+ if(box.slot<2){
+  __weak TOTKSettingsPanel *weak=self;
+  self.captureMonitor=[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown|NSEventMaskFlagsChanged|NSEventMaskLeftMouseDown|NSEventMaskRightMouseDown|NSEventMaskOtherMouseDown
+   handler:^NSEvent *(NSEvent *e){TOTKSettingsPanel *panel=weak;return panel?[panel captured:e]:e;}];
+ }
+ [self refreshBindings];
+}
+-(void)endCapture{
+ if(self.captureMonitor){[NSEvent removeMonitor:self.captureMonitor];self.captureMonitor=nil;}
+ if(!self.capturing)return;
+ self.capturing=nil;[self refreshBindings];
+}
+/* A key, modifier or mouse button for the box waiting for one; nil swallows the event. */
+-(NSEvent *)captured:(NSEvent *)e{
+ TOTKBindingButton *box=self.capturing;if(!box||box.slot==2)return e;
+ int input=-1;
+ switch(e.type){
+  case NSEventTypeKeyDown:
+   if(e.modifierFlags&NSEventModifierFlagCommand)return e;   /* Command-Q, Command-W stay the system's */
+   if(e.isARepeat)return nil;
+   if(e.keyCode==KEYMAP_SETTINGS_KEY){[self endCapture];return nil;}
+   input=e.keyCode;break;
+  case NSEventTypeFlagsChanged:if(front_modifier_down(e)!=1)return nil;input=e.keyCode;break;
+  case NSEventTypeLeftMouseDown:input=KEYMAP_MOUSE_FIRST;break;
+  case NSEventTypeRightMouseDown:input=KEYMAP_MOUSE_FIRST+1;break;
+  case NSEventTypeOtherMouseDown:input=e.buttonNumber<KEYMAP_MOUSE_BUTTONS?KEYMAP_MOUSE_FIRST+(int)e.buttonNumber:-1;break;
+  default:return e;
+ }
+ if(input<0||!keymap_bindable(input))return nil;   /* not one the layout takes: keep waiting */
+ [self bindInput:input];
+ return nil;
+}
+-(void)bindInput:(int)input{
+ TOTKBindingButton *box=self.capturing;if(!box||box.slot==2)return;
+ KeyMap keys;runtime_keymap_get(&keys);
+ if(keymap_bind(&keys,box.gameAction,box.slot,input)){runtime_keymap_set(&keys);
+  fprintf(stderr,"[totk] settings: %s -> %s\n",keymap_input_name(input),keymap_action_name(box.gameAction));}
+ [self endCapture];
+}
+/* A controller button (physical, controller_map.h) for the box waiting for one. The button another action had moves here,
+   and that action takes the button this one had. */
+-(void)bindPad:(int)physical{
+ TOTKBindingButton *box=self.capturing;if(!box||box.slot!=2||physical<0||physical>=CONTROLLER_SWITCH_BUTTONS+1)return;
+ uint16_t map[CONTROLLER_BUTTONS];uint8_t modes[CONTROLLER_BUTTONS];runtime_controller_map_get(map,modes);
+ int previous=-1;for(int p=0;p<=CONTROLLER_SWITCH_BUTTONS;p++)if(controller_map_target(map[p])==box.gameAction){previous=p;break;}
+ uint16_t displaced=map[physical];
+ map[physical]=(uint16_t)(1u<<box.gameAction);modes[physical]=CONTROLLER_HOLD;
+ if(previous>=0&&previous!=physical){map[previous]=displaced;modes[previous]=CONTROLLER_HOLD;}
+ runtime_controller_map_set(map,modes);
+ fprintf(stderr,"[totk] settings: controller %s -> %s\n",controller_physical_names[physical],controller_switch_names[box.gameAction]);
+ [self endCapture];
+}
+-(void)clearBinding:(TOTKBindingButton *)box{
+ [self endCapture];
+ if(box.slot<2){KeyMap keys;runtime_keymap_get(&keys);if(keymap_bind(&keys,box.gameAction,box.slot,KEYMAP_NONE))runtime_keymap_set(&keys);}
+ else{uint16_t map[CONTROLLER_BUTTONS];uint8_t modes[CONTROLLER_BUTTONS];runtime_controller_map_get(map,modes);
+  for(int p=0;p<CONTROLLER_BUTTONS;p++)if(controller_map_target(map[p])==box.gameAction){map[p]=0;modes[p]=CONTROLLER_HOLD;}
+  runtime_controller_map_set(map,modes);}
+ [self refreshBindings];
+}
+-(void)resetKeyboard:(id)sender{(void)sender;[self endCapture];runtime_keymap_reset();[self refreshBindings];}
+-(void)resetController:(id)sender{(void)sender;[self endCapture];runtime_controller_map_reset();[self refreshBindings];}
 -(BOOL)controllerEnabled:(NSInteger)i{
  if(i<0||i>=(NSInteger)self.controllerTargets.count)return NO;
+ if(self.page==SETTINGS_PAGE_BINDINGS)return YES;
  TOTKSettingRow *r=self.rows[i];return r.set!=nil&&r.control.enabled;
 }
 -(void)controllerHighlight{
@@ -262,25 +598,28 @@ enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 5
   v.layer.borderColor=[NSColor colorWithCalibratedRed:0.7 green:0.95 blue:0.8 alpha:1].CGColor;
  }
 }
--(void)controllerHint{
- int detected=-1,type=runtime_gamepad_type(&detected);if(!type)type=detected;
- BOOL ps=type==GAMEPAD_TYPE_PLAYSTATION,sw=type==GAMEPAD_TYPE_SWITCH;
- NSString *select=ps?@"×":@"A",*cancel=ps?@"○":@"B";
- NSString *chord=ps?@"L2 + R2 + L3":sw?@"ZL + ZR + L stick":@"LT + RT + LS";
- self.hint.stringValue=[NSString stringWithFormat:settings_text("↑↓ 选择 · ←→ 调整 · %@ 确定 · %@ 关闭\n按住 %@ 1 秒：打开 / 关闭 · 1 / Esc", "↑↓ Navigate · ←→ Change · %@ Select · %@ Close\nHold %@ for 1 s: open / close · 1 / Esc"),select,cancel,chord];
-}
 -(void)controllerMove:(int)step{
  NSInteger count=self.controllerTargets.count;
  for(NSInteger n=0;n<count;n++){
   self.controllerIndex=(self.controllerIndex+step+count)%count;
   if([self controllerEnabled:self.controllerIndex])break;
  }
- [self controllerHighlight];[self controllerHint];
+ [self controllerHighlight];
+ if(self.page==SETTINGS_PAGE_BINDINGS&&self.controllerIndex>=0&&self.controllerIndex<(NSInteger)self.controllerTargets.count){   /* keep the row in view */
+  NSView *v=self.controllerTargets[(NSUInteger)self.controllerIndex];if(![v isKindOfClass:NSButton.class])[v scrollRectToVisible:NSInsetRect(v.bounds,0,-SETTINGS_SECTION_H)];}
 }
 -(void)controllerChange:(int)step select:(BOOL)select{
  NSInteger i=self.controllerIndex;if(![self controllerEnabled:i])return;
+ if(self.page==SETTINGS_PAGE_BINDINGS){   /* A on a row: wait for the new controller button; on a reset button: press it */
+  if(!select)return;
+  NSView *target=self.controllerTargets[(NSUInteger)i];
+  if([target isKindOfClass:NSButton.class]){[(NSButton *)target performClick:nil];return;}
+  for(TOTKBindingButton *box in self.bindingButtons)if(box.superview==target&&box.slot==2){[self beginCapture:box];return;}
+  return;
+ }
  TOTKSettingRow *r=self.rows[i];
- if(r.choices){
+ if(r.slider){if(select)return;NSSlider *s=(NSSlider *)r.control;s.intValue=MAX(r.sliderMin,MIN(r.sliderMax,s.intValue+step*5));}
+ else if(r.choices){
   NSPopUpButton *p=(NSPopUpButton *)r.control;NSInteger n=p.numberOfItems;if(n<2)return;
   NSInteger index=p.indexOfSelectedItem;if(index<0)index=0;
   [p selectItemAtIndex:(index+step+n)%n];
@@ -288,7 +627,7 @@ enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 5
   NSSwitch *s=(NSSwitch *)r.control;
   s.state=select?(s.state==NSControlStateValueOn?NSControlStateValueOff:NSControlStateValueOn):(step>0?NSControlStateValueOn:NSControlStateValueOff);
  }
- [r changed:r.control];[self controllerHighlight];[self controllerHint];
+ [r changed:r.control];[self controllerHighlight];
 }
 -(void)controllerPad:(RuntimeGamepadState)pad time:(double)now active:(BOOL)active{
  if(!active||!pad.connected){self.controllerArmed=NO;self.previousButtons=0;self.previousDirection=0;return;}
@@ -296,6 +635,13 @@ enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 5
   (pad.buttons&(1ull<<12)||pad.lx < -16000)?3:(pad.buttons&(1ull<<14)||pad.lx>16000)?4:0;
  if(!self.controllerArmed){if(!pad.buttons&&!direction)self.controllerArmed=YES;self.previousButtons=pad.buttons;return;}
  uint64_t edges=pad.buttons&~self.previousButtons;self.previousButtons=pad.buttons;
+ if(self.capturing&&self.capturing.slot==2){   /* the next button pressed is the new one */
+  uint64_t pressed=edges&((1ull<<(CONTROLLER_SWITCH_BUTTONS+1))-1);
+  if(pressed)[self bindPad:__builtin_ctzll(pressed)];
+  self.previousDirection=direction;return;
+ }
+ if(edges&(1ull<<6)){[self selectPage:(self.page+SETTINGS_PAGES-1)%SETTINGS_PAGES];return;}   /* L1 / R1: the tabs */
+ if(edges&(1ull<<7)){[self selectPage:(self.page+1)%SETTINGS_PAGES];return;}
  int detected=-1,type=runtime_gamepad_type(&detected);if(!type)type=detected;
  if(edges&(type==GAMEPAD_TYPE_SWITCH?1u:2u)){settings_show(0);return;}
  if(direction&&(direction!=self.previousDirection||now>=self.repeatAt)){
@@ -321,11 +667,20 @@ enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 5
 
 static TOTKSettingsPanel *settingsPanel;
 static void settings_refresh_all(void) { [settingsPanel refresh]; }
+static void settings_panel_replace(void) {   /* main thread; made again: what the game offers is known only once its code is in */
+ [settingsPanel endCapture];[settingsPanel.timer invalidate];[settingsPanel removeFromSuperview];
+ settingsPanel=[TOTKSettingsPanel new];[window.contentView addSubview:settingsPanel];
+}
+/* The language changed: the open panel is made again in it, on the same page and spot. */
+static void settings_rebuild(void) {
+ if(!window||!settingsOpen)return;
+ settings_panel_replace();[settingsPanel center];[settingsPanel refresh];
+}
 static void settings_show(int open) {   /* main thread */
  open=!!open;
  if(!window||open==settingsOpen||(open&&textEntryOpen))return;
  /* Made again at every opening: what the game offers (aspect ratio, resolution) is known only once its code is in. */
- if(open){[settingsPanel.timer invalidate];[settingsPanel removeFromSuperview];settingsPanel=[TOTKSettingsPanel new];[window.contentView addSubview:settingsPanel];}
+ if(open)settings_panel_replace();else [settingsPanel endCapture];
  settingsOpen=open;
  runtime_gamepad_text_capture(open);
  if(open){runtime_input_clear();[settingsPanel center];[settingsPanel refresh];[(TOTKInputView *)window.contentView setCursorAutoHideEnabled:NO];}
