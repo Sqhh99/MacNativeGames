@@ -8,7 +8,7 @@ from pathlib import Path
 TOTK = Path(__file__).resolve().parents[1] / 'games/totk'
 HEADER = TOTK / 'third_party/d2r_gfx/gfx/nvn/include/totk_ui_lang.h'
 SOURCES = ['runtime/frontend.m', 'runtime/frontend_ios.m', 'runtime/loader.c', 'runtime/romfs.c', 'runtime/aoc_romfs.c',
-           'runtime/swkbd_host.c', 'app/launcher.m', 'third_party/d2r_gfx/gfx/nvn/fps_overlay.c',
+           'runtime/swkbd_host.c', 'runtime/playtime.h', 'app/launcher.m', 'app/update_notice.h', 'third_party/d2r_gfx/gfx/nvn/fps_overlay.c',
            'third_party/d2r_gfx/gfx/nvn/nvn_mtl.m', 'third_party/d2r_gfx/gfx/nvn/totk_shader_rt.m']
 LITERAL = r'"(?:[^"\\]|\\.)*"'
 STRING = r'((?:' + LITERAL + r'\s*)+)'

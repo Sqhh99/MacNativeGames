@@ -22,6 +22,7 @@
 #include "include/totk_ui_lang.h"
 #include "totk_shader_contrib.h"   // the shared shader list contribution and its reminder
 #include "contrib_submit.h"        // its "Submit automatically" (gh), shared with the settings panel
+#include "update_notice.h"
 
 static void show_error(NSString *detail) {
     NSAlert *alert = [NSAlert new];
@@ -192,6 +193,12 @@ int main(int argc, char **argv) {
             [[NSRunningApplication runningApplicationWithProcessIdentifier:running] activateWithOptions:NSApplicationActivateAllWindows];
             return 0;
         }
+        NSString *controls = env_or("TOTK_CONTROLS", [data stringByAppendingPathComponent:@"controls.txt"]);
+        /* The settings panel's interface language (totk_ui_lang.h), next to controls.txt: this launcher's dialogs too. */
+        NSString *language = [NSString stringWithContentsOfFile:[controls.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"ui-language.txt"]
+                                                       encoding:NSUTF8StringEncoding error:nil];
+        if (language && totk_ui_lang_parse(language.UTF8String) >= 0) totk_ui_choice = totk_ui_lang_parse(language.UTF8String);
+        mng_update_notice(data);
 #if defined(TOTK_GAME_V112) || defined(TOTK_GAME_V121) || defined(TOTK_GAME_V143)
         NSString *backup = [profile stringByAppendingFormat:@"-before-%s", TOTK_GAME_VERSION];
         NSFileManager *fm = NSFileManager.defaultManager;
@@ -212,7 +219,6 @@ int main(int argc, char **argv) {
         }
         /* The player's controller layout (runtime/controller_map.h), checked here: a bad line shows this alert instead of
            the game closing at start. */
-        NSString *controls = env_or("TOTK_CONTROLS", [data stringByAppendingPathComponent:@"controls.txt"]);
         NSData *layout = [NSData dataWithContentsOfFile:controls];
         if (layout) {
             NSString *text = layout.length < 16384 ? [[NSString alloc] initWithData:layout encoding:NSUTF8StringEncoding] : nil;
@@ -222,10 +228,6 @@ int main(int argc, char **argv) {
             if (line) { show_error([NSString stringWithFormat:@"%@, line %d: %s", controls, line, problem]); return 1; }
         }
         setenv("TOTK_CONTROLS", controls.fileSystemRepresentation, 1);
-        /* The settings panel's interface language (totk_ui_lang.h), next to controls.txt: this launcher's dialogs too. */
-        NSString *language = [NSString stringWithContentsOfFile:[controls.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"ui-language.txt"]
-                                                       encoding:NSUTF8StringEncoding error:nil];
-        if (language && totk_ui_lang_parse(language.UTF8String) >= 0) totk_ui_choice = totk_ui_lang_parse(language.UTF8String);
         /* key 3's picture mode, kept between runs (runtime/game_patches_v143.c picture_mode_save / _restore) */
         setenv("TOTK_PICTURE_MODE", env_or("TOTK_PICTURE_MODE", [data stringByAppendingPathComponent:@"picture-mode.txt"]).fileSystemRepresentation, 1);
         setenv("TOTK_PROFILE_DIR", profile.fileSystemRepresentation, 1);
