@@ -33,7 +33,9 @@ static void keymap_load_locked(void){
  else fprintf(stderr,"[totk-input] keyboard layout: keyboard.txt\n");
 }
 /* inputLock held: what the held inputs drive now; a press shorter than one game read is latched in pending. */
-static void held_changed_locked(void){keymap_load_locked();KeyMapOutput out=keymap_apply(&keyMap,held);pending|=out.buttons&~heldOut.buttons;heldOut=out;}
+static _Atomic uint64_t heldButtons;   /* heldOut.buttons for runtime_keyboard_buttons, which takes no lock */
+static void held_changed_locked(void){keymap_load_locked();KeyMapOutput out=keymap_apply(&keyMap,held,runtime_mouse_enabled());pending|=out.buttons&~heldOut.buttons;heldOut=out;atomic_store(&heldButtons,out.buttons);}
+uint64_t runtime_keyboard_buttons(void){return atomic_load(&heldButtons);}
 void runtime_keymap_get(KeyMap *out){pthread_mutex_lock(&inputLock);keymap_load_locked();*out=keyMap;pthread_mutex_unlock(&inputLock);}
 /* The settings panel's key bindings: in force at once and saved (keyboard.txt); reset: the default, the file removed. */
 void runtime_keymap_set(const KeyMap *map){
@@ -74,7 +76,7 @@ void runtime_input_mouse(int button,int down){
  if(button<0||button>=KEYMAP_MOUSE_BUTTONS)return;if(down)user_input("mouse");
  pthread_mutex_lock(&inputLock);held[KEYMAP_MOUSE_FIRST+button]=(unsigned char)!!down;held_changed_locked();pthread_mutex_unlock(&inputLock);
 }
-void runtime_input_clear(void){pthread_mutex_lock(&inputLock);memset(keys,0,sizeof(keys));memset(held,0,sizeof held);heldOut=(KeyMapOutput){0};pending=0;pthread_mutex_unlock(&inputLock);runtime_gamepad_clear();}
+void runtime_input_clear(void){pthread_mutex_lock(&inputLock);memset(keys,0,sizeof(keys));memset(held,0,sizeof held);heldOut=(KeyMapOutput){0};atomic_store(&heldButtons,0);pending=0;pthread_mutex_unlock(&inputLock);runtime_gamepad_clear();}
 static void initialize(void){pthread_mutex_lock(&inputLock);enabled=true;pthread_mutex_unlock(&inputLock);fprintf(stderr,"[totk] native keyboard controller initialized\n");}
 /* Docked: one full-key controller as player 1 (id 0, style bit 0). Handheld (TOTK_OPERATION_MODE=handheld, the iPhone):
    the same input is the handheld controller (id 0x20, style bit 1, joy-cons attached) and player 1 is not connected;

@@ -132,6 +132,7 @@ void runtime_memory_probe(void);
 
 void runtime_input_key(unsigned code,int down);   /* a window key: the player's layout (runtime/keyboard_map.h) */
 void runtime_input_mouse(int button,int down);    /* runtime/gamepad.m, mouse mode: a mouse button through the same layout */
+uint64_t runtime_keyboard_buttons(void);         /* runtime/input.c: the Switch buttons the keys and mouse buttons hold now (no lock) */
 void runtime_input_clear(void);
 struct KeyMap;   /* runtime/keyboard_map.h */
 void runtime_keymap_get(struct KeyMap *out);       /* runtime/input.c: the keyboard and mouse layout in force */

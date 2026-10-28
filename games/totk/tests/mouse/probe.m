@@ -17,6 +17,8 @@ void runtime_motion_feed_mouse(const double acc[3], const double gyro[3], uint64
 static void hook(void) { hookCalls++; }
 static unsigned layoutHeld; static int layoutCalls;   /* runtime/input.c's mouse buttons: what reached the layout */
 void runtime_input_mouse(int button, int down) { layoutCalls++; layoutHeld = down ? layoutHeld | 1u << button : layoutHeld & ~(1u << button); }
+static uint64_t keyboardButtons;   /* runtime/input.c: what the keys hold (the ability wheel: L) */
+uint64_t runtime_keyboard_buttons(void) { return keyboardButtons; }
 
 static int failures, checked;
 static void check(int ok, const char *what) { checked++; if (!ok) { failures++; fprintf(stderr, "FAIL: %s\n", what); } }
@@ -26,7 +28,7 @@ static int file_says(const char *path, const char *text) {
 }
 static RuntimeGamepadState settle(void) { RuntimeGamepadState s; runtime_gamepad_read(&s); runtime_gamepad_read(&s); return s; }   /* past latched presses */
 static void spin(void) { [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]]; }
-enum { Y = 1 << 3, ZL = 1 << 8, ZR = 1 << 9 };
+enum { Y = 1 << 3, L = 1 << 6, ZL = 1 << 8, ZR = 1 << 9 };
 
 int main(int argc, char **argv) { @autoreleasepool {
     if (argc != 2) { fprintf(stderr, "usage: probe <empty folder>\n"); return 2; }
@@ -34,6 +36,7 @@ int main(int argc, char **argv) { @autoreleasepool {
     snprintf(controls, sizeof controls, "%s/controls.txt", argv[1]);
     snprintf(saved, sizeof saved, "%s/mouse.txt", argv[1]);
     setenv("TOTK_CONTROLS", controls, 1);
+    setenv("TOTK_MOUSE_GYRO", "1", 1);   /* the mouse's gyro is opt in; the checks below cover it, the default at the end */
     mouseTicksByHand = 1;
     controller_map_default(controllerMap, controllerModes);
     runtime_mouse_set_hook(hook);
@@ -68,6 +71,12 @@ int main(int argc, char **argv) { @autoreleasepool {
     mouse_tick(); s = settle(); check(s.rx > 0 && s.rx < 16384 && feeds == 2, "it decays tick by tick, the gyro keeps sampling");
     runtime_mouse_button(0, 1); runtime_mouse_release(); mouse_tick(); s = settle();
     check(!s.buttons && !s.rx && !s.ry && !layoutHeld, "release (the window lost the pointer): buttons up, also in the layout, stick centred");
+    /* The ability wheel (L held, here from the keys): the mouse points and the stick stays there; L up, centred. */
+    keyboardButtons = L; mouse_tick(); runtime_mouse_move(10, 0); for (int i = 0; i < 30; i++) mouse_tick();
+    int fed = feeds; s = settle();
+    check(abs(s.rx - 16384) <= 1 && !s.ry && lastYaw == 0, "L held: 10 points right stays at half right, no gyro turn");
+    runtime_mouse_move(0, -20); mouse_tick(); s = settle(); check(s.ry > 20000 && s.rx > 0 && s.rx < s.ry, "then up: up and a little right");
+    keyboardButtons = 0; mouse_tick(); s = settle(); check(!s.rx && !s.ry && feeds > fed, "L let go: centred at once");
 
     /* The settings panel's sensitivity: at once, saved, read at the next start; TOTK_MOUSE_SENSITIVITY decides over it. */
     char sensitivity[1100]; snprintf(sensitivity, sizeof sensitivity, "%s/mouse-sensitivity.txt", argv[1]);
@@ -91,10 +100,12 @@ int main(int argc, char **argv) { @autoreleasepool {
     runtime_mouse_set(0); f = fopen(saved, "w"); fputs("maybe\n", f); fclose(f);
     load_mouse_mode(); check(!runtime_mouse_enabled(), "a word other than on / off: off");
 
-    setenv("TOTK_MOUSE_GYRO", "0", 1); motionMouse = -1;
+    unsetenv("TOTK_MOUSE_GYRO"); motionMouse = -1;
     int before = feeds; runtime_mouse_set(1); runtime_mouse_move(10, 0); mouse_tick(); s = settle();
-    check(motionMouse == 0 && feeds == before && s.rx > 0, "TOTK_MOUSE_GYRO=0: the stick only, the controller keeps the gyro");
-    runtime_mouse_set(0); unsetenv("TOTK_MOUSE_GYRO");
+    check(motionMouse == 0 && feeds == before && s.rx > 0, "by default: the stick only, the controller keeps the gyro");
+    runtime_mouse_set(0); setenv("TOTK_MOUSE_GYRO", "0", 1); motionMouse = -1; runtime_mouse_set(1); mouse_tick();
+    check(motionMouse == 0 && feeds == before, "TOTK_MOUSE_GYRO=0: the stick only too");
+    runtime_mouse_set(0); setenv("TOTK_MOUSE_GYRO", "1", 1);
     gyroOn = 0; motionMouse = -1; before = feeds; runtime_mouse_set(1); mouse_tick();
     check(motionMouse == 0 && feeds == before, "TOTK_GYRO=0 (no six-axis device for the game): no mouse gyro either");
     runtime_mouse_set(0);

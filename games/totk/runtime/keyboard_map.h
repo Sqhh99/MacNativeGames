@@ -11,6 +11,9 @@
    offered either (Command-Q and Command-Tab stay the system's).
    The bow, as the controller layout's "zr aim" (controller_map.h): while an input of ZR is held, an input of Y shoots
    (ZR let go) instead of attacking, so the right button draws and a left click looses the arrow.
+   Rotating (Tears of the Kingdom's Ultrahand turns what it holds with R and the d-pad): while the mouse turns the camera
+   (mouse mode) and an input of R is held, the camera inputs (the arrow keys) drive the d-pad in their direction instead,
+   so R with the arrows rotates; without mouse mode they keep turning the camera, which aims a throw.
    A layout file (keyboard.txt next to controls.txt, written by the settings panel) has one "action = input [input]"
    line per action; "none" leaves an action without input; '#' starts a comment; names are case-insensitive; actions not
    given keep the default, minus the inputs the file gives to other actions.
@@ -235,15 +238,20 @@ static inline int keymap_format(const KeyMap *m, char *out, size_t size) {
     return (int)used;
 }
 
-/* The FullKey buttons and the two sticks (-32767..32767, up positive) from the inputs held (held[input] nonzero). */
+/* The FullKey buttons and the two sticks (-32767..32767, up positive) from the inputs held (held[input] nonzero);
+   mouse_camera: the mouse turns the camera (mouse mode), so R with the camera inputs is R with the d-pad. */
 typedef struct { uint64_t buttons; int32_t lx, ly, rx, ry; } KeyMapOutput;
-static inline KeyMapOutput keymap_apply(const KeyMap *m, const unsigned char held[KEYMAP_INPUTS]) {
+static inline KeyMapOutput keymap_apply(const KeyMap *m, const unsigned char held[KEYMAP_INPUTS], int mouse_camera) {
     int on[KEYMAP_ACTIONS];
     for (int a = 0; a < KEYMAP_ACTIONS; a++) {
         on[a] = 0;
         for (int s = 0; s < KEYMAP_SLOTS; s++) if (m->slot[a][s] < KEYMAP_INPUTS && held[m->slot[a][s]]) on[a] = 1;
     }
     if (on[KEYMAP_ZR] && on[KEYMAP_Y]) on[KEYMAP_ZR] = on[KEYMAP_Y] = 0;   /* the shot: drawing, attack lets the arrow go */
+    if (mouse_camera && on[KEYMAP_R]) {   /* rotating: R with the camera inputs is R with the d-pad */
+        static const int camera[4] = {KEYMAP_CAMERA_LEFT, KEYMAP_CAMERA_UP, KEYMAP_CAMERA_RIGHT, KEYMAP_CAMERA_DOWN};
+        for (int i = 0; i < 4; i++) if (on[camera[i]]) { on[camera[i]] = 0; on[KEYMAP_DLEFT + i] = 1; }
+    }
     KeyMapOutput o = {0};
     for (int a = 0; a < KEYMAP_SWITCH_BUTTONS; a++) if (on[a]) o.buttons |= 1ull << a;
     o.lx = 32767 * (on[KEYMAP_MOVE_RIGHT] - on[KEYMAP_MOVE_LEFT]); o.ly = 32767 * (on[KEYMAP_MOVE_UP] - on[KEYMAP_MOVE_DOWN]);

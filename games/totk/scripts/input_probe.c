@@ -22,6 +22,7 @@ int runtime_setting_word(const char *name,char *word,size_t size){(void)name;(vo
 static char saved_name[32],saved_word[16];static int saves;   // the settings panel's saves (runtime_feedback_choose)
 void runtime_setting_save(const char *name,const char *word,const char *what){(void)what;snprintf(saved_name,sizeof saved_name,"%s",name);snprintf(saved_word,sizeof saved_word,"%s",word);saves++;}
 void runtime_setting_remove(const char *name){(void)name;}
+int runtime_mouse_enabled(void){return 0;}
 void dm_gfx_set_flag(const char *name,int v){(void)name;(void)v;runtime_fail("unexpected runtime flag in unit probe");}
 void dm_gfx_querylog_next(long n){(void)n;runtime_fail("unexpected query log in unit probe");}
 void dm_gfx_anomdump(void){runtime_fail("unexpected anomaly dump in unit probe");}

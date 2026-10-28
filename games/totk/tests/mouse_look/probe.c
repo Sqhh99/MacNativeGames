@@ -85,6 +85,54 @@ int main(void) {
     check(bad.sensitivity == 50 && bad.invert_y == 0 && bad.counterweight == 20 && bad.decay == 18 && bad.min_decay == 6,
           "out-of-range settings keep the defaults");
 
+    // Pointing (the ability wheel, L held): from the centre, the stick stays where the mouse put it, cut to length 1,
+    // and the mouse turns nothing; ending it centres the stick.
+    {
+        MouseLook p = {0};
+        mouse_look_move(&p, 30, 0, &s); tick(&p, &s);   // a camera deflection left over from before the wheel
+        mouse_look_point(&p, 1);
+        t = tick(&p, &s);
+        check(t.rx == 0 && t.ry == 0, "pointing starts at the centre, whatever the camera had");
+        mouse_look_move(&p, 8, 0, &s);
+        for (int i = 0; i < 50; i++) t = tick(&p, &s);
+        check(near(t.rx, 0.4 * 32767, 2) && t.ry == 0 && t.gyro[0] == 0 && t.gyro[2] == 0,
+              "pointing: 8 points right is held at 0.4 for half a second, no gyro");
+        mouse_look_move(&p, 100, 0, &s); mouse_look_move(&p, 0, -40, &s);
+        t = tick(&p, &s);
+        check(near(t.rx, 0.447 * 32767, 40) && near(t.ry, 0.894 * 32767, 40), "pointing: right (cut to 1), then 40 points up: up and to the right");
+        mouse_look_move(&p, -200, 0, &s);
+        t = tick(&p, &s);
+        check(t.rx < -30000 && abs(t.ry) < 4000, "pointing: length cut to 1, so a turn of the mouse turns it at once (now left)");
+        mouse_look_point(&p, 0);
+        t = tick(&p, &s);
+        check(t.rx == 0 && t.ry == 0, "pointing over: centred, the camera does not turn on its own");
+        mouse_look_move(&p, 10, 0, &s); t = tick(&p, &s);
+        check(near(t.rx, 0.5 * 32767, 2) && t.gyro[2] < 0, "and the mouse turns the camera and the gyro again");
+    }
+    // Pacing (mouse_look_move_at): moves at the display's 60 Hz, ticks every 10 ms. Untimed, a steady pan reads as a gyro
+    // rate jumping between 0 and twice its speed; timed, it reads steady, the total turn is the mouse's and a stop ends
+    // within a move.
+    for (int timed = 0; timed < 2; timed++) {
+        MouseLook p = {0}; double next = 0, sum = 0, sum2 = 0, total = 0; int n = 0, after = 0;
+        for (int i = 0; i < 100; i++) {
+            const double now_ms = i * 10.0;
+            while (i < 60 && next < now_ms + 10) { mouse_look_move_at(&p, 3, 0, &s, timed ? (uint64_t)(next * 1e6) + 1000000000ull : 0); next += 1000.0 / 60; }
+            t = tick(&p, &s);
+            const double yaw = -t.gyro[2] / (2 * M_PI);   // rev/s, positive to the right
+            total += yaw * 0.010;
+            if (i >= 15 && i < 60) { sum += yaw; sum2 += yaw * yaw; n++; }
+            if (i >= 60 && yaw > 1e-9) after = i - 59;
+        }
+        const double mean = sum / n, spread = sqrt(fmax(0, sum2 / n - mean * mean)) / mean;
+        double moves = 0; for (double e = 0; e < 600; e += 1000.0 / 60) moves++;   // the moves made in the first 600 ms
+        const double expected = moves * 3 * (s.sensitivity / 1000.0) * MOUSE_LOOK_GYRO_GAIN * 0.010;
+        if (!timed) check(spread > 0.5, "untimed 60 Hz moves: the gyro rate jumps (the jitter this fixes)");
+        else {
+            check(spread < 0.12, "timed 60 Hz moves: a steady pan reads as a steady gyro rate");
+            check(after <= 2, "timed: the turn ends within two ticks of the last move");
+        }
+        check(near(total, expected, expected * 1e-9), "the total turn is exactly the mouse's");
+    }
     printf("{\"status\":\"%s\",\"probe\":\"mouse-look\",\"checked\":%d,\"failures\":%d}\n", failures ? "fail" : "pass", checked, failures);
     return failures != 0;
 }

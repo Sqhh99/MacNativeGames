@@ -8,6 +8,7 @@ void runtime_feedback_attach(GCController *controller) { (void)controller; }
 void runtime_feedback_detach(GCController *controller) { (void)controller; }
 void runtime_feedback_quiet(void) {}
 void runtime_input_mouse(int button, int down) { (void)button; (void)down; }   /* runtime/input.c: the keyboard and mouse layout */
+uint64_t runtime_keyboard_buttons(void) { return 0; }
 int runtime_gyro_enabled(void) { return 0; }
 void runtime_motion_mouse(int on) { (void)on; }
 void runtime_motion_feed_mouse(const double acc[3], const double gyro[3], uint64_t now) { (void)acc; (void)gyro; (void)now; }

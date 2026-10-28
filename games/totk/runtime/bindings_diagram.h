@@ -55,10 +55,10 @@ static NSString *diagram_action_short(int action) {
   case KEYMAP_MOVE_DOWN:return settings_text("后退","Back","後退");
   case KEYMAP_MOVE_LEFT:return settings_text("左移","Left","左");
   case KEYMAP_MOVE_RIGHT:return settings_text("右移","Right","右");
-  case KEYMAP_CAMERA_UP:return settings_text("视角 ↑","Cam ↑","カメラ↑");
-  case KEYMAP_CAMERA_DOWN:return settings_text("视角 ↓","Cam ↓","カメラ↓");
-  case KEYMAP_CAMERA_LEFT:return settings_text("视角 ←","Cam ←","カメラ←");
-  case KEYMAP_CAMERA_RIGHT:return settings_text("视角 →","Cam →","カメラ→");
+  case KEYMAP_CAMERA_UP:return settings_text("视角 ↑","Cam ↑","視点↑");
+  case KEYMAP_CAMERA_DOWN:return settings_text("视角 ↓","Cam ↓","視点↓");
+  case KEYMAP_CAMERA_LEFT:return settings_text("视角 ←","Cam ←","視点←");
+  case KEYMAP_CAMERA_RIGHT:return settings_text("视角 →","Cam →","視点→");
  }
  return @"";
 }
@@ -146,6 +146,19 @@ static int diagram_keyboard(DiagramKey out[DIAGRAM_KEYS_MAX]) {
  }
  return n;
 }
+#define DIAGRAM_HALF_H (0.6*DIAGRAM_U)   /* the arrows are drawn at half height */
+#define DIAGRAM_HALF_NAME_W 13.0
+/* A half-height key's action on one line (without a closing arrow that repeats the key's own: ↑ 视角, not ↑ 视角 ↑), or nil
+   when the key drives nothing; and where it is written. */
+static NSString *diagram_half_action(const KeyMap *m, DiagramKey k) {
+ if(k.code==KEYMAP_SETTINGS_KEY)return settings_text("设置","Settings","設定");
+ int a=keymap_action_of(m,k.code,NULL);
+ if(a<0)return nil;
+ NSString *t=[diagram_action_short(a) stringByReplacingOccurrencesOfString:@"\n" withString:@" "],*own=@(k.label);
+ if(t.length>own.length&&[t hasSuffix:own])t=[[t substringToIndex:t.length-own.length] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+ return t;
+}
+static NSRect diagram_half_action_rect(NSRect r) { return NSMakeRect(r.origin.x+4+DIAGRAM_HALF_NAME_W,r.origin.y+2,r.size.width-8-DIAGRAM_HALF_NAME_W,r.size.height-4); }
 #define DIAGRAM_KEYBOARD_H (5.72*DIAGRAM_U)
 #define DIAGRAM_MOUSE_X (DIAGRAM_X0+14.5*DIAGRAM_U+40)
 enum { DIAGRAM_MOUSE_W = 92, DIAGRAM_MOUSE_H = 150, DIAGRAM_MOUSE_SPLIT = 58 };
@@ -190,7 +203,7 @@ enum { DIAGRAM_MOUSE_W = 92, DIAGRAM_MOUSE_H = 150, DIAGRAM_MOUSE_SPLIT = 58 };
  NSRect r;int input=[self inputAt:[self convertPoint:e.locationInWindow fromView:nil] rect:&r];
  if(input>=0&&self.pick)self.pick(input,r);
 }
--(void)drawKey:(DiagramKey)k map:(const KeyMap *)m{
+-(void)drawKey:(DiagramKey)k map:(const KeyMap *)m halfSize:(CGFloat)halfSize{
  int a=keymap_action_of(m,k.code,NULL),settings=k.code==KEYMAP_SETTINGS_KEY,bindable=keymap_bindable(k.code),kind=settings?DIAGRAM_SYSTEM:diagram_kind(a);
  NSRect r=k.rect;NSBezierPath *path=[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(r,2,2) xRadius:5 yRadius:5];NSColor *c=diagram_color(kind);
  if(kind!=DIAGRAM_NONE){[[c colorWithAlphaComponent:0.20] setFill];[path fill];[[c colorWithAlphaComponent:0.95] setStroke];path.lineWidth=1.4;}
@@ -201,6 +214,12 @@ enum { DIAGRAM_MOUSE_W = 92, DIAGRAM_MOUSE_H = 150, DIAGRAM_MOUSE_SPLIT = 58 };
  NSString *name=@(k.label);CGFloat size=9.5;   /* long names in narrow keys (control, command, option) a little smaller */
  while(size>7&&[name sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:size weight:NSFontWeightSemibold]}].width>r.size.width-10)size-=0.5;
  if(kind==DIAGRAM_NONE){diagram_text(name,NSInsetRect(r,3,3),size,NSFontWeightMedium,labelColor,NSTextAlignmentCenter);return;}
+ if(r.size.height<DIAGRAM_HALF_H){   /* the half-height arrows: the key and its action side by side on one line */
+  NSRect at=diagram_half_action_rect(r);
+  diagram_text(name,NSMakeRect(r.origin.x+4,r.origin.y+2,DIAGRAM_HALF_NAME_W,r.size.height-4),size,NSFontWeightSemibold,labelColor,NSTextAlignmentLeft);
+  diagram_text(diagram_half_action(m,k),at,halfSize,NSFontWeightBold,c,NSTextAlignmentCenter);
+  return;
+ }
  diagram_text(name,NSMakeRect(r.origin.x+5,r.origin.y+3,r.size.width-10,12),size,NSFontWeightSemibold,labelColor,NSTextAlignmentLeft);
  diagram_text(settings?settings_text("设置","Settings","設定"):diagram_action_short(a),NSMakeRect(r.origin.x+3,r.origin.y+14,r.size.width-6,r.size.height-17),
   8.6,NSFontWeightBold,c,NSTextAlignmentCenter);
@@ -211,7 +230,10 @@ enum { DIAGRAM_MOUSE_W = 92, DIAGRAM_MOUSE_H = 150, DIAGRAM_MOUSE_SPLIT = 58 };
  NSBezierPath *body=[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(DIAGRAM_X0-6,DIAGRAM_Y0-6,14.5*DIAGRAM_U+12,DIAGRAM_KEYBOARD_H+12) xRadius:12 yRadius:12];
  [[NSColor colorWithCalibratedWhite:1 alpha:0.03] setFill];[body fill];[[NSColor colorWithCalibratedWhite:1 alpha:0.22] setStroke];body.lineWidth=1.2;[body stroke];
  DiagramKey keys[DIAGRAM_KEYS_MAX];int n=diagram_keyboard(keys);
- for(int i=0;i<n;i++)[self drawKey:keys[i] map:&m];
+ CGFloat half=8.6;   /* one size for the half-height arrows' actions: the largest at which all of them fit */
+ for(int i=0;i<n;i++){NSString *t=keys[i].rect.size.height<DIAGRAM_HALF_H?diagram_half_action(&m,keys[i]):nil;CGFloat w=diagram_half_action_rect(keys[i].rect).size.width;
+  while(t&&half>6.5&&[t sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:half weight:NSFontWeightBold]}].width>w)half-=0.5;}
+ for(int i=0;i<n;i++)[self drawKey:keys[i] map:&m halfSize:half];
  diagram_text(settings_text("键盘","Keyboard","キーボード"),NSMakeRect(DIAGRAM_X0,4,300,18),12,NSFontWeightSemibold,heading,NSTextAlignmentLeft);
  [self drawMouse:&m];
  CGFloat y=DIAGRAM_Y0+DIAGRAM_KEYBOARD_H+20;

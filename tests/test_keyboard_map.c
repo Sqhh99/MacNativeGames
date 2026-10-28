@@ -1,5 +1,5 @@
 /* Test the keyboard and mouse layout (games/totk/runtime/keyboard_map.h) with synthetic files: the default, the parser,
-   the writer, binding with swaps, and what held inputs drive. */
+   the writer, binding with swaps, and what held inputs drive (the bow's shot; R with the arrows in mouse mode). */
 #include "../games/totk/runtime/keyboard_map.h"
 #include <stdio.h>
 
@@ -12,11 +12,12 @@ enum { KEY_A = 0, KEY_S = 1, KEY_D = 2, KEY_F = 3, KEY_G = 5, KEY_C = 8, KEY_V =
        KEY_CONTROL = 59, KEY_LEFT = 123, KEY_RIGHT = 124, KEY_DOWN = 125, KEY_UP = 126,
        MOUSE_LEFT = KEYMAP_MOUSE_FIRST, MOUSE_RIGHT, MOUSE_MIDDLE };
 
-static KeyMapOutput hold(const KeyMap *m, const int *inputs, int n) {
+static KeyMapOutput hold_in(const KeyMap *m, const int *inputs, int n, int mouse_camera) {
     unsigned char held[KEYMAP_INPUTS] = {0};
     for (int i = 0; i < n; i++) held[inputs[i]] = 1;
-    return keymap_apply(m, held);
+    return keymap_apply(m, held, mouse_camera);
 }
+static KeyMapOutput hold(const KeyMap *m, const int *inputs, int n) { return hold_in(m, inputs, n, 0); }
 static uint64_t buttons_of(const KeyMap *m, int input) { return hold(m, &input, 1).buttons; }
 static int parse(const char *text, KeyMap *m, int *line) {
     const char *error = NULL; keymap_default(m);
@@ -55,6 +56,21 @@ int main(void) {
         expect(!hold(&d, both, 2).buttons && !hold(&d, mixed, 2).buttons, "drawing and attack: the shot");
         int jump[] = {MOUSE_RIGHT, KEY_SPACE};
         expect(hold(&d, jump, 2).buttons == (1u << KEYMAP_ZR | 1u << KEYMAP_X), "other buttons while drawing");
+    }
+    /* Rotating (Ultrahand: R with the d-pad): in mouse mode, R with the arrows drives the d-pad, not the camera. */
+    {
+        int left[] = {KEY_R, KEY_LEFT}, up[] = {KEY_R, KEY_UP}, two[] = {KEY_R, KEY_RIGHT, KEY_DOWN}, alone[] = {KEY_LEFT};
+        KeyMapOutput o = hold_in(&d, left, 2, 1);
+        expect(o.buttons == (1u << KEYMAP_R | 1u << KEYMAP_DLEFT) && !o.rx && !o.ry, "mouse mode: R + left arrow is R + d-pad left");
+        expect(hold_in(&d, up, 2, 1).buttons == (1u << KEYMAP_R | 1u << KEYMAP_DUP), "mouse mode: R + up arrow is R + d-pad up");
+        expect(hold_in(&d, two, 3, 1).buttons == (1u << KEYMAP_R | 1u << KEYMAP_DRIGHT | 1u << KEYMAP_DDOWN), "two arrows, two d-pad directions");
+        o = hold_in(&d, alone, 1, 1);
+        expect(!o.buttons && o.rx == -32767, "mouse mode, no R: the arrows still turn the camera");
+        o = hold_in(&d, left, 2, 0);
+        expect(o.buttons == 1u << KEYMAP_R && o.rx == -32767, "no mouse mode: R + arrows aims (the camera), as before");
+        int moving[] = {KEY_R, KEY_W};
+        o = hold_in(&d, moving, 2, 1);
+        expect(o.buttons == 1u << KEYMAP_R && o.ly == 32767, "R does not change moving");
     }
     int seen[KEYMAP_INPUTS] = {0}, unique = 1;
     for (int a = 0; a < KEYMAP_ACTIONS; a++)

@@ -79,6 +79,7 @@ void runtime_keymap_get(KeyMap *out){if(!probeKeyMapSet){keymap_default(&probeKe
 void runtime_keymap_set(const KeyMap *map){probeKeyMap=*map;probeKeyMapSet=1;}
 void runtime_keymap_reset(void){keymap_default(&probeKeyMap);probeKeyMapSet=1;}
 void runtime_input_mouse(int button,int down){(void)button;(void)down;}
+uint64_t runtime_keyboard_buttons(void){return 0;}
 void runtime_oe_push_message(uint32_t message){(void)message;}
 void hle_bind_system_event(void *event,int autoclear){(void)event;(void)autoclear;}
 void hle_signal_system_event(void *event){(void)event;}
