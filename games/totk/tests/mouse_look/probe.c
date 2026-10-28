@@ -109,30 +109,6 @@ int main(void) {
         mouse_look_move(&p, 10, 0, &s); t = tick(&p, &s);
         check(near(t.rx, 0.5 * 32767, 2) && t.gyro[2] < 0, "and the mouse turns the camera and the gyro again");
     }
-    // Pacing (mouse_look_move_at): moves at the display's 60 Hz, ticks every 10 ms. Untimed, a steady pan reads as a gyro
-    // rate jumping between 0 and twice its speed; timed, it reads steady, the total turn is the mouse's and a stop ends
-    // within a move.
-    for (int timed = 0; timed < 2; timed++) {
-        MouseLook p = {0}; double next = 0, sum = 0, sum2 = 0, total = 0; int n = 0, after = 0;
-        for (int i = 0; i < 100; i++) {
-            const double now_ms = i * 10.0;
-            while (i < 60 && next < now_ms + 10) { mouse_look_move_at(&p, 3, 0, &s, timed ? (uint64_t)(next * 1e6) + 1000000000ull : 0); next += 1000.0 / 60; }
-            t = tick(&p, &s);
-            const double yaw = -t.gyro[2] / (2 * M_PI);   // rev/s, positive to the right
-            total += yaw * 0.010;
-            if (i >= 15 && i < 60) { sum += yaw; sum2 += yaw * yaw; n++; }
-            if (i >= 60 && yaw > 1e-9) after = i - 59;
-        }
-        const double mean = sum / n, spread = sqrt(fmax(0, sum2 / n - mean * mean)) / mean;
-        double moves = 0; for (double e = 0; e < 600; e += 1000.0 / 60) moves++;   // the moves made in the first 600 ms
-        const double expected = moves * 3 * (s.sensitivity / 1000.0) * MOUSE_LOOK_GYRO_GAIN * 0.010;
-        if (!timed) check(spread > 0.5, "untimed 60 Hz moves: the gyro rate jumps (the jitter this fixes)");
-        else {
-            check(spread < 0.12, "timed 60 Hz moves: a steady pan reads as a steady gyro rate");
-            check(after <= 2, "timed: the turn ends within two ticks of the last move");
-        }
-        check(near(total, expected, expected * 1e-9), "the total turn is exactly the mouse's");
-    }
     printf("{\"status\":\"%s\",\"probe\":\"mouse-look\",\"checked\":%d,\"failures\":%d}\n", failures ? "fail" : "pass", checked, failures);
     return failures != 0;
 }

@@ -146,3 +146,25 @@ The local build wrapper resets `LSMinimumSystemVersion` to 26.0 on every build, 
 ## 8. Outcome
 - **Owner's test, 2026-10-28:** "The issue has been resolved." Holding an object with Ultrahand and moving the view with the mouse now works.
 - **BotW:** shares the runtime, so the stick-only mouse also applies to it. Its app at `build/botw-1.9.0/` predates these changes and was not rebuilt.
+
+## 9. Follow-up: issue 4's changes reverted
+> Regarding Issue 4: Since this problem is caused by enabling the "motion aiming" feature—rather than being a code defect—I believe the changes made for Issue 4 should be reverted in the `sqhh99` branch.
+
+The owner established on a build of upstream `main` (see [the upstream PR log](2026-10-28-upstream-ability-wheel-pr.md)) that the Ultrahand shaking comes from having motion aiming on; with it off, the view is fine. So both changes made for it (sections 6 and 7) are reverted:
+- **Mouse gyro default:** on again unless `TOTK_MOUSE_GYRO=0`, as upstream. Opt-in (`=1`) is gone.
+- **Gyro pacing:** `mouse_look_move_at`, the speed/reserve fields and the paced release are removed. The mouse moves through `mouse_look_move` and its gyro goes out at the next tick, as upstream.
+
+The other fixes stay: the wheel pointer (issue 3), R + arrows, and the arrow-key labels.
+
+### Files
+| File | Change |
+|---|---|
+| `games/totk/runtime/mouse_look.h` | Taken from the upstream PR commit `2d0f0f0`: upstream's file plus the wheel pointer only. |
+| `games/totk/tests/mouse_look/probe.c` | Taken from `2d0f0f0`: the pacing checks are gone, the pointing checks stay. |
+| `games/totk/runtime/gamepad.m` | The mouse-mode comment and the `gyro =` line back to the `037c39b` text; `runtime_mouse_move` calls `mouse_look_move`. |
+| `games/totk/tests/mouse/probe.m` | No `TOTK_MOUSE_GYRO=1` at the start; the `TOTK_MOUSE_GYRO=0` check is back as it was. The wheel check stays. |
+| `docs/controls.md`, `docs/controls.zh-CN.md` | The gyro sentence and the `TOTK_MOUSE_GYRO=0` note back to the `037c39b` text. Against `037c39b`, the docs now differ only by the rotation and wheel sentences. |
+
+### Verification
+- **Tests:** the seven CI C tests, `probe-input`, `probe-input-file`, `probe-autoload`, and `gamepad.m -fsyntax-only -Werror` for 1.4.3 and BotW 1.9.0 all pass. The Python suite ran 469 tests: OK, 5 skipped.
+- **App:** not rebuilt. `build/totk-1.4.3/Tears of the Kingdom.app` still has the stick-only mouse until the next build.

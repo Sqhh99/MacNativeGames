@@ -36,7 +36,6 @@ int main(int argc, char **argv) { @autoreleasepool {
     snprintf(controls, sizeof controls, "%s/controls.txt", argv[1]);
     snprintf(saved, sizeof saved, "%s/mouse.txt", argv[1]);
     setenv("TOTK_CONTROLS", controls, 1);
-    setenv("TOTK_MOUSE_GYRO", "1", 1);   /* the mouse's gyro is opt in; the checks below cover it, the default at the end */
     mouseTicksByHand = 1;
     controller_map_default(controllerMap, controllerModes);
     runtime_mouse_set_hook(hook);
@@ -100,12 +99,10 @@ int main(int argc, char **argv) { @autoreleasepool {
     runtime_mouse_set(0); f = fopen(saved, "w"); fputs("maybe\n", f); fclose(f);
     load_mouse_mode(); check(!runtime_mouse_enabled(), "a word other than on / off: off");
 
-    unsetenv("TOTK_MOUSE_GYRO"); motionMouse = -1;
+    setenv("TOTK_MOUSE_GYRO", "0", 1); motionMouse = -1;
     int before = feeds; runtime_mouse_set(1); runtime_mouse_move(10, 0); mouse_tick(); s = settle();
-    check(motionMouse == 0 && feeds == before && s.rx > 0, "by default: the stick only, the controller keeps the gyro");
-    runtime_mouse_set(0); setenv("TOTK_MOUSE_GYRO", "0", 1); motionMouse = -1; runtime_mouse_set(1); mouse_tick();
-    check(motionMouse == 0 && feeds == before, "TOTK_MOUSE_GYRO=0: the stick only too");
-    runtime_mouse_set(0); setenv("TOTK_MOUSE_GYRO", "1", 1);
+    check(motionMouse == 0 && feeds == before && s.rx > 0, "TOTK_MOUSE_GYRO=0: the stick only, the controller keeps the gyro");
+    runtime_mouse_set(0); unsetenv("TOTK_MOUSE_GYRO");
     gyroOn = 0; motionMouse = -1; before = feeds; runtime_mouse_set(1); mouse_tick();
     check(motionMouse == 0 && feeds == before, "TOTK_GYRO=0 (no six-axis device for the game): no mouse gyro either");
     runtime_mouse_set(0);

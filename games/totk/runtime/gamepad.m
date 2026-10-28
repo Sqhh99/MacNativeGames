@@ -393,10 +393,8 @@ static void hid_pad_start(void) {}
    left attack, right draw the bow with left to shoot, middle lock on), which the settings panel's key bindings change;
    they are also physical buttons 17-21 of the controller layout, for mouse lines in controls.txt. Movement goes to
    runtime/mouse_look.h, ticked every 10 ms by a timer while mouse mode is on: the right stick (the stronger of it and a
-   controller's) and, with TOTK_MOUSE_GYRO=1 and a six-axis device for the game (not TOTK_GYRO=0), the gyro, which the
-   mouse then has to itself (runtime_motion_mouse). The gyro is off by default (user 2026-10-28): once Ultrahand holds an
-   object, Tears of the Kingdom moves the view with the gyro as well as the stick, and the mouse driving both shook the
-   view and carried it past the aim; with the stick alone it follows the mouse, and a controller keeps its own gyro. Sensitivity 1-100 (50): the settings panel's slider, kept in
+   controller's) and, unless TOTK_MOUSE_GYRO=0 or the game has no six-axis device (TOTK_GYRO=0), the gyro, which the
+   mouse then has to itself (runtime_motion_mouse). Sensitivity 1-100 (50): the settings panel's slider, kept in
    mouse-sensitivity.txt; TOTK_MOUSE_SENSITIVITY decides over both. Other settings: TOTK_MOUSE_INVERT_Y=1,
    TOTK_MOUSE_COUNTERWEIGHT, TOTK_MOUSE_DECAY, TOTK_MOUSE_MIN_DECAY 0-100 (20, 18, 6). */
 static _Atomic int mouseMode;
@@ -431,7 +429,7 @@ static void mouse_apply(int on) {   /* start or stop the ticks and the gyro take
         MouseLookSettings settings = mouse_look_settings(NULL, getenv("TOTK_MOUSE_INVERT_Y"),
                                                          getenv("TOTK_MOUSE_COUNTERWEIGHT"), getenv("TOTK_MOUSE_DECAY"), getenv("TOTK_MOUSE_MIN_DECAY"));
         settings.sensitivity = atomic_load(&mouseSensitivity);
-        int gyro = runtime_gyro_enabled() && g && !strcmp(g, "1");   /* opt in: see above */
+        int gyro = runtime_gyro_enabled() && !(g && !strcmp(g, "0"));
         pthread_mutex_lock(&gamepadLock);
         mouseSettings = settings; mouse_look_reset(&mouseLook); mouseRX = mouseRY = 0; mouseGyro = gyro;
         pthread_mutex_unlock(&gamepadLock);
@@ -506,7 +504,7 @@ int runtime_mouse_set(int on) {
 void runtime_mouse_move(double dx, double dy) {   /* the window, while it holds the pointer */
     if (!atomic_load(&mouseMode)) return;
     pthread_mutex_lock(&gamepadLock);
-    mouse_look_move_at(&mouseLook, dx, dy, &mouseSettings, runtime_now_ns());   /* timed: the gyro is paced (mouse_look.h) */
+    mouse_look_move(&mouseLook, dx, dy, &mouseSettings);
     pthread_mutex_unlock(&gamepadLock);
 }
 
