@@ -39,17 +39,51 @@ CI (`.github/workflows/tests.yml`) also compiles and runs these C tests with `-s
 `test_controller_map.c`, `test_keyboard_map.c`, `test_game_language.c`, `test_audio_ramp.c`, `test_bow_state.c`. `make check` covers the
 romfs-path, controller-map and keyboard-map ones.
 
-Building an app (20–40 min, must not be interrupted; rerunning the same command resumes from the work folder):
+Building an app (a first build can take 20–40 minutes or longer; cached rebuilds can be much faster). Let it finish;
+rerunning the same command reuses verified stages from the work folder:
 
 ```sh
 python3.14 build_app.py "<base.xci|nsp>" -k "<prod.keys>" [--update <nsp|nsz>] [--dlc <nsp> ...] \
   [--firmware <nca dir> | --shared-fonts <dir>] [--platform macos|ios|visionos] --work <dir> -o <app|ipa>
-python3.14 update_runtime.py "<app>" [--work <dir>] [--seed]   # swap in a new runtime without game files (~1 min)
+python3.14 update_runtime.py "<app>" --work <dir> [--seed]   # runtime/launcher update using a complete matching app
 ```
 
 Per AGENTS.md, local builds always pass explicit `--work build/<game>-<version>/work` and `-o build/<game>-<version>/...`;
 `build/build_game.py` and `build/package_game.py` are the owner's (git-ignored) wrappers for the selected versions.
 The player-facing procedure and error table is `.claude/skills/install-zelda/SKILL.md`.
+
+### Fast rebuilds for local testing
+
+Follow **Incremental Mac app builds** in [AGENTS.md](AGENTS.md) for the complete commands, input paths and final validation.
+For the existing local setup, run only the requested game's wrapper from the repository root:
+
+```sh
+python3.14 build/build_game.py totk-1.4.3
+python3.14 build/build_game.py botw-1.9.0
+```
+
+These are full app builds with incremental reuse. Keep each version's `work/` directory: verified extracted data, rewritten
+modules, `venv`, tools, object files and shader caches are expensive to recreate. Let `build_app.py` synchronize current
+sources and decide which stages must be rebuilt from recorded inputs/hashes. A raw `make` in a stale `work/totk/` copy
+can miss new source changes; compiling the runtime alone does not refresh the app bundle. If the ignored wrapper is absent,
+use the explicit `build_app.py` command in AGENTS.md rather than its legacy output defaults.
+
+The 2026-10-28 TOTK rebuild at `ef68d11` completed in 211.5 seconds, including 174.6 seconds warming 31,307 prepared
+shaders. This is one measured cached build, not a timing guarantee. First builds and invalidated caches take longer.
+Without the optional offline Metal toolchain, the builder warms this Mac's cache at the app's output location; moving
+the app can require warm-up again. Read the warm-up logs and report its actual result.
+
+When dependencies are already installed, use the existing build venv for source checks:
+
+```sh
+make check PYTHON="$PWD/build/totk-1.4.3/work/venv/bin/python"
+```
+
+After a successful build, verify the recorded source/game versions, actual minimum macOS version (currently 27 for these
+local commands), strict code signature, launcher `--check` and `update_runtime.probe_runtime` as detailed in AGENTS.md.
+Correcting Info.plist requires re-signing before the final checks. Record results under the version's build/log paths and
+in the mandatory work log; handing over an app does not mean gameplay was tested. Package a DMG or install only when
+requested: an older DMG is not updated by rebuilding its neighboring app.
 
 Developer targets live in `games/totk/Makefile` (run from `games/totk`, uses `.venv/bin/python`; `make dependencies` creates it):
 `runtime-<version>` / `binary-<version>` / `game-data-<version>` (versions `v112 v121 v143 botw160 botw190`; 1.0.0 is plain

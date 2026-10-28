@@ -62,5 +62,43 @@ AI disclosure: merge resolutions, integration adjustments, translations, test ad
 
 ## 5. Open items
 
-- Rebuild the apps and DMGs separately when requested to try the merged changes in-game.
+- The TOTK app was subsequently rebuilt as recorded below. The BOTW app and both DMGs still need a separate rebuild to include this merge.
 - The merge remains local; no network fetch, push or pull request is part of this request.
+
+## 6. Follow-up: build the TOTK app for the owner's test
+
+> APP构建了吗？构建一下王国之泪的app，我运行测试一下
+
+Built the complete Mac app from `sqhh99` at `ef68d118751861d1667a3282f698b91fd1f879c6` using `python3.14 build/build_game.py totk-1.4.3`. The helper passes explicit `--work build/totk-1.4.3/work` and `-o "build/totk-1.4.3/Tears of the Kingdom.app"` paths and selects the base XCI, separate 1.4.3 update NSZ, shared fonts and shared keys under `game-assets/`. It reuses verified extracted game data and build caches. No source code changed for this build.
+
+- **App:** `build/totk-1.4.3/Tears of the Kingdom.app`.
+- **Build:** completed successfully in 211.5 seconds. Both the short and full source revision are recorded in the app's Info.plist.
+- **Shader seed:** 31,307 prepared variants. The seed generator skipped 84 translation candidates; its reuse/build behavior allows these skips. The Mac GPU warm-up compiled all 31,307 prepared variants with zero failures in 174.6 seconds, and a separate process found all 64 sampled cache entries.
+- **Final validation:** set `LSMinimumSystemVersion` to `27.0` to match the actual local deployment target, ad-hoc re-signed the app, passed strict signature verification and launcher `--check`, and passed the runtime loader's cross-module probe against the bundled game modules. The probe also exercised installation of the new high-FPS fade patch without running game entry code. No key files are bundled.
+- **Records:** `build/totk-1.4.3/build-status.json`, `build.log`, `app-validation.json` and `work/logs/`.
+- **Source checks:** not rerun for this artifact-only follow-up; the same source commit passed the checks in section 4.
+- **Not done:** no DMG packaging, installation, gameplay test or changes to the owner's saves. BOTW was not rebuilt. Moving the app can require shader warm-up again at its new location.
+
+AI disclosure: Codex ran the existing build helper, adjusted the artifact's minimum-system declaration, ran validation and wrote this record. The owner will perform gameplay testing.
+
+## 7. Follow-up: document the incremental build workflow
+
+> 我发现你的构建方法很快，把它整理到AGENTS.md和CLAUDE.md去
+
+Plan: compare the successful build invocation with the builder and existing guidance, document the reusable workflow in English, and check the new command examples without rerunning the build.
+
+| File | Change |
+|---|---|
+| `AGENTS.md` | Add the canonical incremental Mac app workflow: preserve per-version work/cache/venv data; use the full builder for app requests; list local wrapper commands and equivalent explicit commands for both games; retain integrity checks and source synchronization; validate revision, minimum macOS, signature, launcher and bundled-module loading; distinguish apps from DMGs and installation. |
+| `CLAUDE.md` | Link to the canonical workflow, add quick commands and venv-based source checks, and replace the blanket build-duration estimate with cold/warm build guidance backed by the measured TOTK build. |
+| This work log | Record the documentation request and verification while retaining the preceding app-build record. |
+
+Verification: compared the instructions with `build/build_game.py`, `build_app.py`, `update_runtime.probe_runtime` and the successful build records. All five new shell code blocks passed `sh -n`; all eight referenced local input files/directories exist. `git diff --check` passed. No source code changed; no game build, `make check`, gameplay, packaging, installation, commit or push was performed for this documentation follow-up. Earlier build/test results remain historical results, not newly rerun checks.
+
+AI disclosure: Codex wrote the documentation and checked it as listed. The local wrapper remains ignored; complete commands are included so a fresh checkout does not depend on that file.
+
+## 8. Follow-up: commit the build documentation
+
+> 提交commit
+
+Commit scope: `AGENTS.md`, `CLAUDE.md` and this work log, including the preceding app-build and documentation records. Keep the commit on `sqhh99` with identity `Sqhh99 <sqhh99@gmail.com>`; do not push. Check the diff and staged file list before committing. This is a documentation-only commit; no new build or test-suite run is needed, and section 7 records the command-example checks already performed.

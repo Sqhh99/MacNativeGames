@@ -64,3 +64,60 @@ These instructions apply to the entire repository and to all agents working in i
 - Build TOTK 1.4.3 from its base XCI, separate 1.4.3 update NSZ, shared fonts, and the shared keys.
 - Include the owner's existing settings-panel customization in personal builds: remove the shader/pipeline contribution and project-star actions, and keep suitable footer spacing while preserving supported upstream controls.
 - Validate each completed app before packaging its DMG. Keep final deliverables in the build directory unless the owner explicitly requests installation.
+
+## Incremental Mac app builds
+
+- For an ordinary source update, rebuild with the existing version's work folder. Preserve extracted/rewritten game data, the work-local `venv`, pinned tools, object files, translated shader seeds and Metal caches. Do not clean or recreate these folders merely because a branch was merged.
+- Let `build_app.py` check recorded inputs and hashes and rebuild invalidated stages. Never skip integrity checks or force stale data to match. Verified reuse must preserve the app assembly and validation stages.
+- Use the full app builder for the normal "build the app so I can test it" request. Compiling `totk-native-*` alone does not update the app. Build only the requested game; package a DMG or install into Applications only when requested.
+
+From the repository root, the existing local wrappers provide the selected inputs, explicit work/output paths, macOS deployment target and build logs:
+
+```sh
+python3.14 build/build_game.py totk-1.4.3
+python3.14 build/build_game.py botw-1.9.0
+```
+
+Run the command for the requested game, not both by default. These wrappers are git-ignored local conveniences; a fresh checkout may not have them. The equivalent full commands are:
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 python3.14 build_app.py \
+  game-assets/tears-of-the-kingdom/base/v0/totk-base-v0-0100f2c0115b6000.xci \
+  --update game-assets/tears-of-the-kingdom/updates/v1.4.3/totk-update-v1.4.3-0100f2c0115b6800.nsz \
+  -k game-assets/shared/keys/prod.keys --shared-fonts game-assets/shared/fonts \
+  --work build/totk-1.4.3/work -o "build/totk-1.4.3/Tears of the Kingdom.app"
+
+MACOSX_DEPLOYMENT_TARGET=27.0 python3.14 build_app.py \
+  game-assets/breath-of-the-wild/base/v0/botw-base-v0-01007ef00011e000.nsp \
+  --update game-assets/breath-of-the-wild/updates/v1.9.0/botw-update-v1.9.0-01007ef00011e800.nsp \
+  --dlc game-assets/breath-of-the-wild/dlc/botw-dlc-01007ef00011f001.nsp \
+  --dlc game-assets/breath-of-the-wild/dlc/botw-dlc-01007ef00011f002.nsp \
+  -k game-assets/shared/keys/prod.keys --shared-fonts game-assets/shared/fonts \
+  --work build/botw-1.9.0/work -o "build/botw-1.9.0/Breath of the Wild.app"
+```
+
+- The builder synchronizes current sources into `work/totk/` using content comparison and rebuild-safe timestamps. Do not run `make` against an old work-tree source copy and assume it includes the current checkout.
+- Reuse the build's Python environment for source checks when dependencies are already installed, for example `make check PYTHON="$PWD/build/totk-1.4.3/work/venv/bin/python"`. Do not reinstall the same dependencies globally for each build.
+- A warm TOTK 1.4.3 rebuild at `ef68d11` took 211.5 seconds on this Mac on 2026-10-28, including 174.6 seconds of Metal warm-up. This is an observed cached build, not a promised duration: first builds, changed inputs/translators and cold GPU caches can take much longer.
+- Let the builder finish shader preparation and warm-up. Missing optional offline Metal tooling is handled by warming the Mac's Metal cache. Report actual compiler failures, allowed seed-generator skips, and any skipped warm-up separately. Moving the app can make the cache cold again; wait for startup warm-up before gameplay testing. Do not quit unrelated apps to obtain the cache without authorization.
+
+Before handing over an app:
+
+1. Confirm the build exited successfully and the app's `CFBundleShortVersionString`, `MNGSourceCommit` and `MNGSourceRevision` identify the intended version and checkout. Local wrappers record status in `build-status.json` and output in `build.log`; stage logs are in `work/logs/`.
+2. Ensure `LSMinimumSystemVersion` matches the actual binary/dependency deployment target. These local commands target macOS 27; the upstream template may still declare 26. If the plist needs correction, ad-hoc re-sign the app with `codesign --force --sign - "<app>"` before the final checks.
+3. Run `codesign --verify --strict "<app>"` and the app's `Contents/MacOS/<CFBundleExecutable> --check`. For the current TOTK app, that executable is `Contents/MacOS/TOTK`.
+4. Run the native loader probe against the bundled modules. It checks their hashes and cross-module calls without starting gameplay, constructors, a game window or GPU work. For TOTK:
+
+   ```sh
+   python3.14 - <<'PY'
+   from pathlib import Path
+   from update_runtime import probe_runtime
+   probe_runtime(Path("build/totk-1.4.3/Tears of the Kingdom.app").resolve(), "v143",
+                 Path("build/totk-1.4.3/work/logs").resolve())
+   PY
+   ```
+
+   For BOTW use its app/log paths and version identifier `botw190`.
+5. Record the results in the work log and provide the final app path. Distinguish build/probe success from actual gameplay testing. An existing DMG still contains its older app until explicitly repackaged.
+
+For a narrowly scoped runtime/launcher-only update, `update_runtime.py` is an alternative when the existing app has complete matching game data. Always pass its version's explicit `--work` path; use `--seed` when the startup seed must be regenerated. This path can reuse the app's bundled game data without the original packages/keys; the full builder commands above still select them. Never treat this shortcut as a way to reuse mismatched game versions or skip validation.
