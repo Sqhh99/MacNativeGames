@@ -168,3 +168,34 @@ The other fixes stay: the wheel pointer (issue 3), R + arrows, and the arrow-key
 ### Verification
 - **Tests:** the seven CI C tests, `probe-input`, `probe-input-file`, `probe-autoload`, and `gamepad.m -fsyntax-only -Werror` for 1.4.3 and BotW 1.9.0 all pass. The Python suite ran 469 tests: OK, 5 skipped.
 - **App:** not rebuilt. `build/totk-1.4.3/Tears of the Kingdom.app` still has the stick-only mouse until the next build.
+
+## 10. Follow-up: both apps rebuilt, DMGs packaged, records committed
+> Yes, please rebuild the project and create a commit. Also, could you please build the .dmg files for both games as well?
+
+### Builds from `5c57e25` (local wrappers; each app's `MNGSourceCommit` is `5c57e25`)
+- **TOTK 1.4.3:** `python3.14 build/build_game.py totk-1.4.3` completed in 880 s. 31,307 shaders were compiled again (844 s), because the cache for this location had gone cold after the upstream test build.
+- **BotW 1.9.0:** `python3.14 build/build_game.py botw-1.9.0` completed in 248 s (21,228 shaders, 222 s). This is BotW's first build with the 2026-10-28 changes; its runtime contains the new 視点 label.
+- **Order:** the two builds ran one after the other. Packaging started only after both had finished, so nothing held Metal's cache during a warm-up.
+
+### DMGs (`python3.14 build/package_game.py <game>`)
+Before packaging, the wrapper:
+- ran `probe_runtime`;
+- checked `CFBundleShortVersionString` and that no `.keys` file is bundled;
+- set `LSMinimumSystemVersion` to 27.0, re-signed and ran the launcher `--check` ("ok: game version 1.4.3" / "1.9.0");
+- ran `codesign --verify --strict`.
+
+It then ran `hdiutil create` (UDZO) and `hdiutil verify` (checksum VALID).
+
+| DMG | Size | SHA-256 |
+|---|---|---|
+| `build/totk-1.4.3/totk-1.4.3-arm64-macOS27.dmg` | 17,216,333,252 bytes | `544d5551b99c35da859e5630f1197a5d6c7ab47abecda67991cb65b7f70715cd` |
+| `build/botw-1.9.0/botw-1.9.0-arm64-macOS27.dmg` | 15,006,678,418 bytes | `c3aa82f57e8018e7368bcd5a391f74879979158a8f97903753a52462c1ebea33` |
+
+The previous DMGs (2026-10-27, from before these changes) were renamed to `*-arm64-macOS27.2026-10-27.dmg` in the same folders, not deleted. About 94 GiB of disk is free afterwards.
+
+### Commit
+This log section, the [PR record](../pull-requests/2026-10-28-ability-wheel-mouse.md) and the [upstream PR work log](2026-10-28-upstream-ability-wheel-pr.md) are committed together and `sqhh99` is pushed.
+
+### Not done
+- Gameplay with the rebuilt apps: the revert brings back the upstream gyro behaviour; motion aiming stays off in the owner's settings.
+- Installing into Applications: not requested.
