@@ -8,7 +8,7 @@
   - `3290424`: the three pinned DLCs (`1b52cf7` without its review and work log);
   - `123739c`: review follow-up fixes (`0a67bfa` without its review and work log).
   - Commit messages point to the records on the fork's `acnh` branch. The branch's `games/acnh` is byte-identical to `acnh` at `3a22ad1`.
-- **Pull request:** PENDING
+- **Pull request:** [ly05010419/MacNativeGames#1393](https://github.com/ly05010419/MacNativeGames/pull/1393), opened 2026-10-30. Verified: open, base `main`, head `Sqhh99:feat/acnh-3.0.1-fps-dlc`, 3 commits, 27 files (+1,465 / −44), mergeable.
 - **Related records:**
   - [sync and PR work log](../work-logs/2026-10-30-acnh-sync-main-fps-dlc-pr.md);
   - [60 FPS work log](../work-logs/2026-10-29-acnh-60fps.md);

@@ -60,6 +60,6 @@ AI assistance: Claude Code (Claude Opus 5.5). PR record:
 ## Publishing
 
 `acnh` and `feat/acnh-3.0.1-fps-dlc` were pushed to `origin`. The PR was opened
-against `ly05010419/MacNativeGames` `main`. Its number and checks are in the PR
-record. No DMG was made and nothing was installed outside `build/`. The three
+against `ly05010419/MacNativeGames` `main` as [#1393](https://github.com/ly05010419/MacNativeGames/pull/1393) (verified open and mergeable; details in the PR
+record). No DMG was made and nothing was installed outside `build/`. The three
 untracked work logs from 2026-10-28/29 were left untouched.
