@@ -228,30 +228,6 @@ def verify_inputs(work: Path, prepared: Path, fonts: Path):
     return expected, verified, rows
 
 
-def seed_data(data_dir: Path, user_data_src: Path = None, cache_src: Path = None):
-    data_dir.mkdir(parents=True, exist_ok=True)
-    profile = data_dir / "profile"
-    profile.mkdir(mode=0o700, exist_ok=True)
-    (data_dir / "shader-cache").mkdir(parents=True, exist_ok=True)
-
-    # If existing save data is found, seed it
-    if user_data_src and user_data_src.is_dir():
-        save_src = user_data_src / "save"
-        if save_src.is_dir() and not (profile / "save").is_dir():
-            shutil.copytree(save_src, profile / "save", dirs_exist_ok=True)
-            print(f"Seeded save data from {user_data_src}")
-        for item in user_data_src.glob("account.*"):
-            if item.is_file() and not (profile / item.name).is_file():
-                shutil.copy2(item, profile / item.name)
-
-    # If existing shader cache is available, seed it
-    if cache_src and cache_src.is_dir():
-        dst_cache = data_dir / "shader-cache"
-        for item in cache_src.glob("*.variants"):
-            if not (dst_cache / item.name).exists():
-                clone(item, dst_cache / item.name)
-
-
 def package(work: Path, prepared: Path, fonts: Path, output: Path, icon: Path = None):
     if output.suffix != ".app":
         raise ValueError("--output must end with .app")
@@ -274,9 +250,12 @@ def package(work: Path, prepared: Path, fonts: Path, output: Path, icon: Path = 
 
         # 1. Compile native launcher
         launcher_src = HERE / "acnh_app_launcher.c"
+        launcher_data_src = HERE / "acnh_user_data.m"
         launcher_bin = macos / "Animal Crossing"
         subprocess.run(
-            ["xcrun", "clang", "-O2", "-Wall", "-Wextra", str(launcher_src), "-o", str(launcher_bin)],
+            ["xcrun", "clang", "-O2", "-Wall", "-Wextra", "-Wno-deprecated-declarations", "-fobjc-arc",
+             f'-DACNH_DATA_VERSION="{expected["display_version"]}"', str(launcher_src), str(launcher_data_src),
+             "-framework", "Foundation", "-o", str(launcher_bin)],
             check=True,
         )
 
@@ -370,6 +349,8 @@ def package(work: Path, prepared: Path, fonts: Path, output: Path, icon: Path = 
             "LSApplicationCategoryType": "public.app-category.games",
             "LSMinimumSystemVersion": os.environ.get("MACOSX_DEPLOYMENT_TARGET", "26.0"),
             "NSHighResolutionCapable": True,
+            "MNGDataLayoutVersion": 1,
+            "MNGDataDirectoryVersion": expected["display_version"],
         }
         # The source revision, when the project is a Git checkout (a downloaded archive packages without it).
         commit = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
@@ -392,6 +373,8 @@ def package(work: Path, prepared: Path, fonts: Path, output: Path, icon: Path = 
             "inputs": verified,
             "packager": identity(Path(__file__)),
             "launcher_source": identity(launcher_src),
+            "launcher_data_source": identity(launcher_data_src),
+            "launcher_data_header": identity(HERE / "acnh_user_data.h"),
         }
         if "dlc/manifest.json" in verified:
             receipt["dlc"] = json.loads((game / "dlc/manifest.json").read_text())["entries"]
@@ -404,13 +387,8 @@ def package(work: Path, prepared: Path, fonts: Path, output: Path, icon: Path = 
         # 12. Run launcher self-check
         subprocess.run([str(launcher_bin), "--check"], check=True)
 
-        # 13. Seed application data directory next to the app
-        app_data_dir = output.parent / "Animal Crossing Data"
-        # Newer versions start with an isolated profile. Save migration requires
-        # its own compatibility check; never seed 3.x from an unrelated old save.
-        user_data_local = WORKSPACE_ROOT / "user-data" if expected["cnmt_version_raw"] == 458752 else None
-        cache_local = work / "build/shader-cache/rt-totk-native-v4-unverified"
-        seed_data(app_data_dir, user_data_local, cache_local)
+        # User data is created/migrated by the launcher in the current user's Library.
+        # Packaging and --check never write a profile or a sibling data directory.
 
         # Finder and the Dock keep the icon they cached for this path (reported in play, PR #1305: the app showed the old, blank
         # icon in Finder while the running app's was right): a new modification date and Launch Services registration

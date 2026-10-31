@@ -14,6 +14,11 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "acnh_user_data.h"
+
+#ifndef ACNH_DATA_VERSION
+#define ACNH_DATA_VERSION "1.2.1"
+#endif
 
 static void join(char *out, const char *dir, const char *name) {
     if (snprintf(out, PATH_MAX, "%s/%s", dir, name) >= PATH_MAX) { fputs("path too long\n", stderr); exit(1); }
@@ -47,7 +52,8 @@ static void back_up_saves(const char *profile, const char *data, const char *sta
 
 int main(int argc, char **argv) {
     int check = argc == 2 && !strcmp(argv[1], "--check");
-    if (argc != 1 && !check) { fputs("usage: Animal Crossing [--check]\n", stderr); return 2; }
+    int prepare = argc == 2 && !strcmp(argv[1], "--prepare-data");
+    if (argc != 1 && !check && !prepare) { fputs("usage: Animal Crossing [--check|--prepare-data]\n", stderr); return 2; }
     char exe[PATH_MAX], real[PATH_MAX]; uint32_t size = sizeof exe;
     if (_NSGetExecutablePath(exe, &size) || !realpath(exe, real)) return 1;
     char macos[PATH_MAX], contents[PATH_MAX], app[PATH_MAX], home[PATH_MAX];
@@ -62,16 +68,20 @@ int main(int argc, char **argv) {
     if (check) { puts("Animal Crossing launcher: runtime exists; game was not launched"); return 0; }
 
     char data[PATH_MAX], profile[PATH_MAX], cache[PATH_MAX], commands[PATH_MAX], log[PATH_MAX], slot[PATH_MAX], controls[PATH_MAX];
-    const char *override = getenv("ACNH_DATA_DIR");
-    if (override && *override) {
-        if (override[0] != '/' || snprintf(data, sizeof data, "%s", override) >= (int)sizeof data) {
-            fputs("ACNH_DATA_DIR must be an absolute directory path\n", stderr); return 1;
-        }
-    } else join(data, home, "Animal Crossing Data");
+    AcnhUserPaths paths; char path_error[1024];
+    if (acnh_prepare_user_data(&paths, NULL, home, ACNH_DATA_VERSION, getenv("ACNH_DATA_DIR"), path_error)) {
+        fprintf(stderr, "Animal Crossing: %s\n", path_error); return 1;
+    }
+    snprintf(data, sizeof data, "%s", paths.data);
+    snprintf(cache, sizeof cache, "%s", paths.cache);
+    if (paths.migrated) fprintf(stderr, "Animal Crossing: migrated user data to %s%s\n", data,
+        paths.retained_legacy ? "; original directory retained as a backup" : "");
+    if (prepare) {
+        printf("Data: %s\nShader cache: %s\nLogs: %s\n", data, cache, paths.logs); return 0;
+    }
     join(profile, data, "profile");
-    join(cache, data, "shader-cache");
     join(slot, data, "game-slot");
-    join(commands, data, "commands.txt"); join(log, data, "last-run.log");
+    join(commands, data, "commands.txt"); join(log, paths.logs, "last-run.log");
     /* The settings panel (key 1) keeps controls.txt, keyboard.txt and its other one-word files here. */
     join(controls, data, "controls.txt");
     mkdir(data, 0755); mkdir(profile, 0700); mkdir(cache, 0755); mkdir(slot, 0755);
@@ -96,7 +106,8 @@ int main(int argc, char **argv) {
     char dlc[PATH_MAX]; join(dlc, game, "dlc");
     setenv("ACNH_DLC_DIR", dlc, 1);
     setenv("TOTK_SHARED_FONTS", fonts, 1);
-    setenv("TOTK_ROMFS_PROOF_DIR", data, 1);
+    char proofs[PATH_MAX]; parent_of(proofs, cache);
+    setenv("TOTK_ROMFS_PROOF_DIR", proofs, 1);
     setenv("TOTK_GAME_SLOT_DIR", slot, 1);
     setenv("TOTK_INPUT_FILE", commands, 1);
     setenv("TOTK_CONTROLS", controls, 1);
@@ -116,7 +127,7 @@ int main(int argc, char **argv) {
     pid_t child = fork();
     if (child < 0) return 1;
     if (child == 0) {
-        char previous[PATH_MAX]; join(previous, data, "previous-run.log");
+        char previous[PATH_MAX]; join(previous, paths.logs, "previous-run.log");
         rename(log, previous);
         int fd = open(log, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) { dup2(fd, 1); dup2(fd, 2); close(fd); }

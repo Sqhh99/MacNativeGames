@@ -70,8 +70,9 @@ Without the step the app still works and translates shaders while playing.
 
 The 3.0.1 host targets NVN 55.15 and never installs the 1.2.1 game-address
 patches. It uses a separate version data folder and does not import old saves.
-The launcher keeps writable caches, verification proofs and game locks beside
-the app under `Animal Crossing Data`, preserving the signed app resources.
+The launcher keeps writable state in the current user's Library, preserving the
+signed app resources and keeping Applications free of data folders. See the user
+data paths and migration rules below.
 No DMG or installation is performed by these commands.
 
 ### Optional DLCs for 3.0.1
@@ -97,7 +98,7 @@ to the `build_host.py` command above, then repackage. The native work folder rem
 the DLC path; `--no-dlc` forgets it. Builds in a new work folder without this option
 report zero DLCs. The packager refuses a runtime built for a different DLC manifest and
 bundles every prepared read-only image. The runtime checks each image's full hash, keeps
-a verification record under `Animal Crossing Data` and reuses it while the image file is
+a verification record under the version's user cache directory and reuses it while the image file is
 unchanged (as for the base RomFS; `TOTK_ROMFS_VERIFY=full` forces a new hash), enumerates
 the actual DLC indices and serves file slices from each mounted image. A missing or
 changed image stops the launch rather than hiding content a save may need. The base/update RomFS
@@ -120,7 +121,7 @@ not establish that Happy Home Paradise or the promotional rewards work in gamepl
 
 30 FPS remains the default. A build with the optional speed-correction inputs
 offers **30 FPS** and **60 FPS (experimental)** under **Settings > Display**
-(key 1). The choice is saved as `Animal Crossing Data/frame-rate.txt` and applies
+(key 1). The choice is saved as `<user data>/frame-rate.txt` and applies
 after quitting and restarting the game. Code and parameter corrections must be
 loaded together; selecting 30 restores the original game timing on the next
 launch. No other cheats are enabled, and MetalFX frame interpolation remains
@@ -217,7 +218,7 @@ python3 games/acnh/scripts/package_native_app.py \
   --output "apps/Animal Crossing New Horizons.app"
 ```
 
-The packager validates all executable identities, rewrites, RomFS integrity, shared fonts, and shader libraries, compiles the native launcher (`acnh_app_launcher.c`), generates high-resolution app icons from the game's control assets, establishes ad-hoc code signatures, and seeds `apps/Animal Crossing Data`.
+The packager validates all executable identities, rewrites, RomFS integrity, shared fonts, and shader libraries, compiles the native launcher and user-data helper, generates high-resolution app icons from the game's control assets, and establishes ad-hoc code signatures. Packaging and launcher `--check` never create or import user profiles.
 
 ### 5. Running the Game
 - Launch via GUI by opening `apps/Animal Crossing New Horizons.app`.
@@ -225,7 +226,34 @@ The packager validates all executable identities, rewrites, RomFS integrity, sha
 ```sh
 "apps/Animal Crossing New Horizons.app/Contents/MacOS/Animal Crossing"
 ```
-Interactive automation and tests can deliver commands via `apps/Animal Crossing Data/commands.txt`. Save states are automatically versioned and backed up under `apps/Animal Crossing Data/backups/`.
+For version 3.0.1, the default per-user paths are:
+
+| Contents | Location |
+| --- | --- |
+| Saves (`profile/save`), account, preferences, backups, screenshots and command file | `~/Library/Application Support/com.nintendo.acnh.native/3.0.1/` |
+| Shader cache and resource verification proofs | `~/Library/Caches/com.nintendo.acnh.native/3.0.1/` |
+| `last-run.log` and `previous-run.log` | `~/Library/Logs/com.nintendo.acnh.native/3.0.1/` |
+
+Other supported game versions use their own version directory. Interactive
+automation writes `<user data>/commands.txt`; automatic save backups are under
+`<user data>/backups/`. All normal launches of the same version share these paths
+regardless of where the App is installed.
+
+After replacing an older App, the first launch imports its adjacent
+`Animal Crossing Data` only if the new version's user-data directory does not
+exist. Quit the older game first. The launcher checks the legacy version and game
+lock, then moves the directory atomically on the same volume. Cross-volume or
+read-only-source migration copies and hashes every file before publishing it and
+retains the original directory as a backup. It never merges or overwrites an
+existing destination save, imports a different/unknown save version, or follows
+links in legacy data. Cache/log relocation is retryable after interruption.
+
+`Animal Crossing --prepare-data` performs just this setup/migration and prints the
+paths without starting gameplay. `--check` remains read-only. Diagnostics should
+set an absolute `ACNH_DATA_DIR` to an isolated work directory: this bypasses default
+migration and keeps the original self-contained layout (profile, shader-cache,
+logs and preferences below that override). Do not use a normal launch of a build
+copy to test migration of an installed App's separate legacy profile.
 
 ### 6. Controls and the settings panel
 The default keyboard and mouse layout keeps the left hand on the keyboard. The mouse only clicks: Animal Crossing has
@@ -263,7 +291,7 @@ Key 1, or L3 + R3 together on a controller, opens the settings panel; Esc or key
 - **Key bindings:** drawings of the keyboard and mouse and of the controller. Click a key or button and pick what it
   does; a list view is also available. Each device has its own reset button.
 
-The choices are saved next to the app in `Animal Crossing Data` (`controls.txt`, `keyboard.txt` and one small file per
+The choices are saved in the user-data directory (`controls.txt`, `keyboard.txt` and one small file per
 setting, including `frame-rate.txt`). Scripted input (`commands.txt`, `TOTK_INPUT_SCRIPT`) keeps the fixed test layout, so scripts mean the same keys
 whatever the player picks. `TOTK_LANG`, `TOTK_MFX_UPSCALE` / `TOTK_MFX_OUTPUT` and `TOTK_RUMBLE` decide
 before the panel's choices; the panel then shows their value greyed out. `ACNH_FPS` likewise takes priority over the frame-rate choice.

@@ -1,6 +1,7 @@
 """Tests for Animal Crossing: New Horizons app packaging and launcher."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import plistlib
 import subprocess
@@ -106,7 +107,9 @@ class PackagingTests(unittest.TestCase):
             launcher_bin = macos / "Animal Crossing"
             launcher_src = GAME_DIR / "scripts/acnh_app_launcher.c"
             subprocess.run(
-                ["xcrun", "clang", "-O2", "-Wall", "-Wextra", str(launcher_src), "-o", str(launcher_bin)],
+                ["xcrun", "clang", "-O2", "-Wall", "-Wextra", "-Wno-deprecated-declarations", "-fobjc-arc",
+                 str(launcher_src), str(GAME_DIR / "scripts/acnh_user_data.m"),
+                 "-framework", "Foundation", "-o", str(launcher_bin)],
                 check=True,
             )
             self.assertTrue(launcher_bin.is_file())
@@ -122,9 +125,28 @@ class PackagingTests(unittest.TestCase):
             runtime.chmod(0o755)
 
             # With runtime, --check succeeds
-            res = subprocess.run([str(launcher_bin), "--check"], capture_output=True, text=True)
+            data = temp_path / "isolated-data"
+            env = dict(os.environ, ACNH_DATA_DIR=str(data))
+            res = subprocess.run([str(launcher_bin), "--check"], env=env, capture_output=True, text=True)
             self.assertEqual(res.returncode, 0)
             self.assertIn("runtime exists; game was not launched", res.stdout)
+            self.assertFalse(data.exists(), "--check must not create or migrate user data")
+
+            # --prepare-data resolves storage without launching the runtime.
+            capture = temp_path / "captured-paths.txt"
+            env["ACNH_CAPTURE"] = str(capture)
+            runtime.write_text('#!/bin/sh\nprintf "%s\\n" "$TOTK_PROFILE_DIR" "$TOTK_SHADER_CACHE" '
+                               '"$TOTK_ROMFS_PROOF_DIR" "$TOTK_CONTROLS" > "$ACNH_CAPTURE"\n'
+                               'printf "synthetic runtime\\n"\n')
+            res = subprocess.run([str(launcher_bin), "--prepare-data"], env=env, capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertFalse(capture.exists())
+            res = subprocess.run([str(launcher_bin)], env=env, capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(capture.read_text().splitlines(), [str(data / "profile"), str(data / "shader-cache"),
+                                                              str(data), str(data / "controls.txt")])
+            self.assertEqual((data / "last-run.log").read_text(), "synthetic runtime\n")
+            self.assertFalse((temp_path / "Animal Crossing Data").exists())
 
     def test_valid_metallib_detector(self):
         with tempfile.TemporaryDirectory() as temp:
